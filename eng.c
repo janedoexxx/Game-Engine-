@@ -27,6 +27,17 @@ void ini(void)
     // Set window title
     XStoreName(e.dpy, e.wid, "Game Engine");
     
+    // Create graphics context
+    XGCValues gv;
+    gv.foreground = BlackPixel(e.dpy, s);
+    gv.background = WhitePixel(e.dpy, s);
+    gv.line_width = 2;
+    gv.line_style = LineSolid;
+    
+    e.gc = XCreateGC(e.dpy, e.wid, 
+                    GCForeground | GCBackground | GCLineWidth | GCLineStyle,
+                    &gv);
+    
     // Select events
     XSelectInput(e.dpy, e.wid, ExposureMask | KeyPressMask);
     
@@ -49,7 +60,12 @@ void run(void)
         
         switch (ev.type) {
             case Expose:
-                // Handle expose event
+                // Draw test graphics
+                if (e.gc) {
+                    XDrawRectangle(e.dpy, e.wid, e.gc, 100, 100, 200, 150);
+                    XDrawLine(e.dpy, e.wid, e.gc, 100, 100, 300, 250);
+                    XFillArc(e.dpy, e.wid, e.gc, 400, 300, 100, 100, 0, 360*64);
+                }
                 break;
             case KeyPress:
                 // Handle key press
@@ -61,6 +77,11 @@ void run(void)
 
 void fin(void)
 {
+    if (e.gc) {
+        XFreeGC(e.dpy, e.gc);
+        printf("GC freed\n");
+    }
+    
     if (e.win) {
         XDestroyWindow(e.dpy, e.wid);
         XCloseDisplay(e.dpy);

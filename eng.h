@@ -17,6 +17,7 @@ typedef struct {
     u8 win;     // window created
     void* dpy;  // display
     u32 wid;    // window id
+    void* gc;   // graphics context
 } eng_t;
 
 // Engine functions
