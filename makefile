@@ -1,6 +1,6 @@
 CC=gcc
 CFLAGS=-Wall -Wextra -std=c99 -pedantic
-LIBS=-lm
+LIBS=-lm -lX11
 
 all: eng
 

@@ -11,6 +11,14 @@ typedef signed int s32;
 typedef float f32;
 typedef double f64;
 
+// Engine state
+typedef struct {
+    u8 rn;      // running
+    u8 win;     // window created
+    void* dpy;  // display
+    u32 wid;    // window id
+} eng_t;
+
 // Engine functions
 void ini(void);
 void run(void);
