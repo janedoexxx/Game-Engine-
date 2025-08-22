@@ -24,6 +24,17 @@ typedef struct { f32 x, y; } v2;
 typedef struct { f32 x, y, z; } v3;
 typedef struct { f32 x, y, z, w; } v4;
 
+// Color type
+typedef struct { u8 r, g, b; } col;
+
+// Sprite type
+typedef struct {
+    v2 pos;
+    v2 sz;
+    col clr;
+    u8 vis;
+} spr;
+
 // Engine state
 typedef struct {
     u8 rn;      // running
@@ -38,6 +49,8 @@ typedef struct {
     u32 fc;     // frame counter
     u32 ft;     // frame time
     u8 keys[16]; // key states
+    spr* sprs;  // sprite array
+    u32 ns;     // number of sprites
 } eng_t;
 
 // Engine functions
@@ -55,5 +68,11 @@ v2 v2_div(v2 a, f32 s);
 f32 v2_len(v2 a);
 v2 v2_nrm(v2 a);
 f32 v2_dot(v2 a, v2 b);
+
+// Sprite functions
+spr spr_mk(v2 pos, v2 sz, col clr);
+void spr_add(spr s);
+void spr_drw(spr s);
+u8 spr_col(spr a, spr b);
 
 #endif

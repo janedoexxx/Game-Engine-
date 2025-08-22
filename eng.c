@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <stdlib.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
@@ -34,6 +35,21 @@ static u8 xk(KeySym ks)
     }
 }
 
+// Set graphics context color
+static void set_col(col c)
+{
+    XColor xc;
+    Colormap cm = DefaultColormap(e.dpy, DefaultScreen(e.dpy));
+    
+    xc.red = c.r * 256;
+    xc.green = c.g * 256;
+    xc.blue = c.b * 256;
+    xc.flags = DoRed | DoGreen | DoBlue;
+    
+    XAllocColor(e.dpy, cm, &xc);
+    XSetForeground(e.dpy, e.gc, xc.pixel);
+}
+
 // Vector functions implementation
 v2 v2_mk(f32 x, f32 y) { v2 r = {x, y}; return r; }
 v2 v2_add(v2 a, v2 b) { return v2_mk(a.x + b.x, a.y + b.y); }
@@ -43,6 +59,43 @@ v2 v2_div(v2 a, f32 s) { return v2_mk(a.x / s, a.y / s); }
 f32 v2_len(v2 a) { return sqrtf(a.x * a.x + a.y * a.y); }
 v2 v2_nrm(v2 a) { f32 l = v2_len(a); return l > 0 ? v2_div(a, l) : v2_mk(0, 0); }
 f32 v2_dot(v2 a, v2 b) { return a.x * b.x + a.y * b.y; }
+
+// Sprite functions implementation
+spr spr_mk(v2 pos, v2 sz, col clr)
+{
+    spr s;
+    s.pos = pos;
+    s.sz = sz;
+    s.clr = clr;
+    s.vis = 1;
+    return s;
+}
+
+void spr_add(spr s)
+{
+    if (e.ns % 10 == 0) {
+        e.sprs = realloc(e.sprs, (e.ns + 10) * sizeof(spr));
+    }
+    e.sprs[e.ns++] = s;
+}
+
+void spr_drw(spr s)
+{
+    if (!s.vis) return;
+    set_col(s.clr);
+    XFillRectangle(e.dpy, e.wid, e.gc, 
+                  (int)s.pos.x, (int)s.pos.y, 
+                  (int)s.sz.x, (int)s.sz.y);
+}
+
+u8 spr_col(spr a, spr b)
+{
+    if (!a.vis || !b.vis) return 0;
+    return (a.pos.x < b.pos.x + b.sz.x &&
+            a.pos.x + a.sz.x > b.pos.x &&
+            a.pos.y < b.pos.y + b.sz.y &&
+            a.pos.y + a.sz.y > b.pos.y);
+}
 
 void ini(void)
 {
@@ -93,10 +146,27 @@ void ini(void)
         e.keys[i] = 0;
     }
     
+    // Init sprite system
+    e.sprs = NULL;
+    e.ns = 0;
+    
+    // Create some test sprites
+    col red = {255, 0, 0};
+    col green = {0, 255, 0};
+    col blue = {0, 0, 255};
+    
+    // Platform
+    spr_add(spr_mk(v2_mk(300, 500), v2_mk(200, 20), green));
+    
+    // Obstacles
+    spr_add(spr_mk(v2_mk(100, 400), v2_mk(50, 50), blue));
+    spr_add(spr_mk(v2_mk(600, 300), v2_mk(50, 50), blue));
+    
     e.win = 1;
     e.rn = 1;
     
     printf("Window created\n");
+    printf("Sprites initialized: %u\n", e.ns);
 }
 
 void run(void)
@@ -109,6 +179,9 @@ void run(void)
     static v2 pos = {100.0f, 100.0f};
     static v2 vel = {2.0f, 3.0f};
     static v2 acc = {0.0f, 0.1f}; // Gravity
+    
+    // Create player sprite
+    spr player = spr_mk(pos, v2_mk(50, 50), (col){255, 0, 0});
     
     while (e.rn) {
         // Handle events
@@ -157,29 +230,57 @@ void run(void)
             vel = v2_add(vel, acc);
             pos = v2_add(pos, vel);
             
-            // Boundary collision
-            if (pos.x > 700.0f || pos.x < 50.0f) {
-                vel.x = -vel.x * 0.8f; // Bounce with energy loss
-                if (pos.x > 700.0f) pos.x = 700.0f;
-                if (pos.x < 50.0f) pos.x = 50.0f;
+            // Update player sprite position
+            player.pos = pos;
+            
+            // Check collisions with sprites
+            for (u32 i = 0; i < e.ns; i++) {
+                if (spr_col(player, e.sprs[i])) {
+                    // Simple collision response
+                    vel.y = -vel.y * 0.8f;
+                    
+                    // Position correction
+                    if (pos.y < e.sprs[i].pos.y) {
+                        pos.y = e.sprs[i].pos.y - player.sz.y;
+                    } else {
+                        pos.y = e.sprs[i].pos.y + e.sprs[i].sz.y;
+                    }
+                    
+                    player.pos = pos;
+                }
             }
             
-            if (pos.y > 500.0f || pos.y < 50.0f) {
-                vel.y = -vel.y * 0.8f; // Bounce with energy loss
-                if (pos.y > 500.0f) pos.y = 500.0f;
-                if (pos.y < 50.0f) pos.y = 50.0f;
+            // Boundary collision
+            if (pos.x > 750.0f || pos.x < 0.0f) {
+                vel.x = -vel.x * 0.8f;
+                if (pos.x > 750.0f) pos.x = 750.0f;
+                if (pos.x < 0.0f) pos.x = 0.0f;
+                player.pos = pos;
+            }
+            
+            if (pos.y > 550.0f || pos.y < 0.0f) {
+                vel.y = -vel.y * 0.8f;
+                if (pos.y > 550.0f) pos.y = 550.0f;
+                if (pos.y < 0.0f) pos.y = 0.0f;
+                player.pos = pos;
             }
             
             // Clear screen
             XClearWindow(e.dpy, e.wid);
             
-            // Draw moving object
-            XFillArc(e.dpy, e.wid, e.gc, (int)pos.x, (int)pos.y, 50, 50, 0, 360*64);
+            // Draw all sprites
+            for (u32 i = 0; i < e.ns; i++) {
+                spr_drw(e.sprs[i]);
+            }
+            
+            // Draw player
+            spr_drw(player);
             
             // Draw FPS counter
             char buf[64];
             snprintf(buf, sizeof(buf), "FPS: %u POS: (%.1f, %.1f) VEL: (%.1f, %.1f)", 
                     e.fps, pos.x, pos.y, vel.x, vel.y);
+            set_col((col){0, 0, 0}); // Black text
             XDrawString(e.dpy, e.wid, e.gc, 10, 20, buf, strlen(buf));
             
             // Draw controls info
@@ -207,6 +308,12 @@ void run(void)
 
 void fin(void)
 {
+    // Free sprites
+    if (e.sprs) {
+        free(e.sprs);
+        printf("Sprites freed\n");
+    }
+    
     if (e.gc) {
         XFreeGC(e.dpy, e.gc);
         printf("GC freed\n");
