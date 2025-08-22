@@ -2,6 +2,7 @@
 #include "eng.h"
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
@@ -32,6 +33,16 @@ static u8 xk(KeySym ks)
         default: return 0;
     }
 }
+
+// Vector functions implementation
+v2 v2_mk(f32 x, f32 y) { v2 r = {x, y}; return r; }
+v2 v2_add(v2 a, v2 b) { return v2_mk(a.x + b.x, a.y + b.y); }
+v2 v2_sub(v2 a, v2 b) { return v2_mk(a.x - b.x, a.y - b.y); }
+v2 v2_mul(v2 a, f32 s) { return v2_mk(a.x * s, a.y * s); }
+v2 v2_div(v2 a, f32 s) { return v2_mk(a.x / s, a.y / s); }
+f32 v2_len(v2 a) { return sqrtf(a.x * a.x + a.y * a.y); }
+v2 v2_nrm(v2 a) { f32 l = v2_len(a); return l > 0 ? v2_div(a, l) : v2_mk(0, 0); }
+f32 v2_dot(v2 a, v2 b) { return a.x * b.x + a.y * b.y; }
 
 void ini(void)
 {
@@ -93,10 +104,11 @@ void run(void)
     if (!e.rn) return;
     
     XEvent ev;
-    static u32 x = 100;
-    static u32 y = 100;
-    static u32 dx = 2;
-    static u32 dy = 3;
+    
+    // Physics state using vectors
+    static v2 pos = {100.0f, 100.0f};
+    static v2 vel = {2.0f, 3.0f};
+    static v2 acc = {0.0f, 0.1f}; // Gravity
     
     while (e.rn) {
         // Handle events
@@ -128,36 +140,51 @@ void run(void)
             e.fc++;
             
             // Handle input
-            if (e.keys[KEY_UP]) dy -= 1;
-            if (e.keys[KEY_DOWN]) dy += 1;
-            if (e.keys[KEY_LEFT]) dx -= 1;
-            if (e.keys[KEY_RIGHT]) dx += 1;
+            if (e.keys[KEY_UP]) acc.y = -0.2f;
+            else if (e.keys[KEY_DOWN]) acc.y = 0.2f;
+            else acc.y = 0.1f; // Default gravity
+            
+            if (e.keys[KEY_LEFT]) acc.x = -0.2f;
+            else if (e.keys[KEY_RIGHT]) acc.x = 0.2f;
+            else acc.x = 0.0f;
+            
             if (e.keys[KEY_SPACE]) {
-                dx = 2;
-                dy = 3;
+                // Jump
+                vel.y = -5.0f;
+            }
+            
+            // Physics update
+            vel = v2_add(vel, acc);
+            pos = v2_add(pos, vel);
+            
+            // Boundary collision
+            if (pos.x > 700.0f || pos.x < 50.0f) {
+                vel.x = -vel.x * 0.8f; // Bounce with energy loss
+                if (pos.x > 700.0f) pos.x = 700.0f;
+                if (pos.x < 50.0f) pos.x = 50.0f;
+            }
+            
+            if (pos.y > 500.0f || pos.y < 50.0f) {
+                vel.y = -vel.y * 0.8f; // Bounce with energy loss
+                if (pos.y > 500.0f) pos.y = 500.0f;
+                if (pos.y < 50.0f) pos.y = 50.0f;
             }
             
             // Clear screen
             XClearWindow(e.dpy, e.wid);
             
-            // Update animation
-            x += dx;
-            y += dy;
-            
-            if (x > 700 || x < 100) dx = -dx;
-            if (y > 500 || y < 100) dy = -dy;
-            
             // Draw moving object
-            XFillArc(e.dpy, e.wid, e.gc, x, y, 50, 50, 0, 360*64);
+            XFillArc(e.dpy, e.wid, e.gc, (int)pos.x, (int)pos.y, 50, 50, 0, 360*64);
             
             // Draw FPS counter
-            char buf[32];
-            snprintf(buf, sizeof(buf), "FPS: %u DX: %d DY: %d", e.fps, dx, dy);
+            char buf[64];
+            snprintf(buf, sizeof(buf), "FPS: %u POS: (%.1f, %.1f) VEL: (%.1f, %.1f)", 
+                    e.fps, pos.x, pos.y, vel.x, vel.y);
             XDrawString(e.dpy, e.wid, e.gc, 10, 20, buf, strlen(buf));
             
             // Draw controls info
-            XDrawString(e.dpy, e.wid, e.gc, 10, 40, "Arrows: Change speed", 20);
-            XDrawString(e.dpy, e.wid, e.gc, 10, 60, "Space: Reset speed", 18);
+            XDrawString(e.dpy, e.wid, e.gc, 10, 40, "Arrows: Apply force", 19);
+            XDrawString(e.dpy, e.wid, e.gc, 10, 60, "Space: Jump", 11);
             XDrawString(e.dpy, e.wid, e.gc, 10, 80, "ESC: Quit", 9);
             
             // Calculate actual FPS every second

@@ -19,6 +19,11 @@ typedef double f64;
 #define KEY_LEFT 0x05
 #define KEY_RIGHT 0x06
 
+// Vector types
+typedef struct { f32 x, y; } v2;
+typedef struct { f32 x, y, z; } v3;
+typedef struct { f32 x, y, z, w; } v4;
+
 // Engine state
 typedef struct {
     u8 rn;      // running
@@ -40,5 +45,15 @@ void ini(void);
 void run(void);
 void fin(void);
 u8 key(u8 k);
+
+// Vector functions
+v2 v2_mk(f32 x, f32 y);
+v2 v2_add(v2 a, v2 b);
+v2 v2_sub(v2 a, v2 b);
+v2 v2_mul(v2 a, f32 s);
+v2 v2_div(v2 a, f32 s);
+f32 v2_len(v2 a);
+v2 v2_nrm(v2 a);
+f32 v2_dot(v2 a, v2 b);
 
 #endif
