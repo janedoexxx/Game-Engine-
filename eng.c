@@ -446,6 +446,112 @@ void aud_ini(void)
     if (err < 0) {
         fprintf(stderr, "Audio set params error: %s\n", snd_strerror(err));
         snd_pcm_close((snd_pcm_t*)e.ahan);
+        e.aud = 0;
+        return;
+    }
+    
+    // Generate sound samples and add to resource manager
+    snd* jump_snd = malloc(sizeof(snd));
+    *jump_snd = gen_sin(440, 200, 44100);
+    res_add(jump_snd, RES_SND, "jump");
+    
+    snd* hit_snd = malloc(sizeof(snd));
+    *hit_snd = gen_sqr(220, 100, 44100);
+    res_add(hit_snd, RES_SND, "hit");
+    
+    snd* click_snd = malloc(sizeof(snd));
+    *click_snd = gen_sqr(880, 50, 44100);
+    res_add(click_snd, RES_SND, "click");
+    
+    e.aud = 1;
+    printf("Audio initialized\n");
+}
+
+void aud_play(u8 s)
+{
+    if (!e.aud) return;
+    
+    const char* snd_names[] = {"jump", "hit", "click"};
+    if (s >= sizeof(snd_names)/sizeof(snd_names[0])) return;
+    
+    snd* sound = (snd*)res_find(snd_names[s]);
+    if (!sound || !sound->data) return;
+    
+    int err = snd_pcm_writei((snd_pcm_t*)e.ahan, sound->data, sound->len);
+    if (err < 0) {
+        fprintf(stderr, "Audio write error: %s\n", snd_strerror(err));
+        snd_pcm_recover((snd_pcm_t*)e.ahan, err, 0);
+    }
+}
+
+void aud_fin(void)
+{
+    if (!e.aud) return;
+    
+    snd_pcm_close((snd_pcm_t*)e.ahan);
+    e.aud = 0;
+    printf("Audio shutdown\n");
+}
+
+snd* snd_get(u32 id)
+{
+    return (snd*)res_get(id);
+}
+
+// Scene functions implementation
+void scn_add(u32 id, scn_init_fn init, scn_upd_fn upd, scn_drw_fn drw, scn_fin_fn fin)
+{
+    if (e.sm.ns % 5 == 0) {
+        e.sm.scns = realloc(e.sm.scns, (e.sm.ns + 5) * sizeof(scn));
+    }
+    
+    scn* s = &e.sm.scns[e.sm.ns++];
+    s->id = id;
+    s->init = init;
+    s->upd = upd;
+    s->drw = drw;
+    s->fin = fin;
+    s->active = 0;
+}
+
+void scn_set(u32 id)
+{
+    // Deactivate current scene
+    if (e.sm.cur < e.sm.ns) {
+        scn* cur = &e.sm.scns[e.sm.cur];
+        if (cur->fin) cur->fin();
+        cur->active = 0;
+    }
+    
+    // Find and activate new scene
+    for (u32 i = 0; i < e.sm.ns; i++) {
+        if (e.sm.scns[i].id == id) {
+            e.sm.cur = i;
+            e.sm.scns[i].active = 1;
+            if (e.sm.scns[i].init) e.sm.scns[i].init();
+            return;
+        }
+    }
+    
+    // Fallback to first scene if not found
+    if (e.sm.ns > 0) {
+        e.sm.cur = 0;
+        e.sm.scns[0].active = 1;
+        if (e.sm.scns[0].init) e.sm.scns[0].init();
+    }
+}
+
+void scn_upd(void)
+{
+    if (e.sm.cur < e.sm.ns && e.sm.scns[e.sm.cur].upd) {
+        e.sm.scns[e.sm.cur].upd();
+    }
+}
+
+void scn_drw(void)
+{
+    if (e.sm.cur < e.sm.ns && e.sm.scns[e.sm.cur].drw) {
+        e.sm.scns[e.sm.cur].drw();
     }
 }
 
