@@ -18,6 +18,12 @@ typedef struct {
     void* dpy;  // display
     u32 wid;    // window id
     void* gc;   // graphics context
+    u32 lt;     // last time
+    u32 ct;     // current time
+    u32 dt;     // delta time
+    u32 fps;    // frames per second
+    u32 fc;     // frame counter
+    u32 ft;     // frame time
 } eng_t;
 
 // Engine functions

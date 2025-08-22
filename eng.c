@@ -2,9 +2,19 @@
 #include <stdio.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <sys/time.h>
+#include <unistd.h>
 
 // Engine state
 static eng_t e;
+
+// Get current time in milliseconds
+static u32 tm(void)
+{
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (tv.tv_sec * 1000) + (tv.tv_usec / 1000);
+}
 
 void ini(void)
 {
@@ -44,6 +54,12 @@ void ini(void)
     // Map window
     XMapWindow(e.dpy, e.wid);
     
+    // Init timing
+    e.lt = tm();
+    e.fps = 60;
+    e.fc = 0;
+    e.ft = 1000 / e.fps;
+    
     e.win = 1;
     e.rn = 1;
     
@@ -55,23 +71,61 @@ void run(void)
     if (!e.rn) return;
     
     XEvent ev;
+    static u32 x = 100;
+    static u32 y = 100;
+    static u32 dx = 2;
+    static u32 dy = 3;
+    
     while (e.rn) {
-        XNextEvent(e.dpy, &ev);
-        
-        switch (ev.type) {
-            case Expose:
-                // Draw test graphics
-                if (e.gc) {
-                    XDrawRectangle(e.dpy, e.wid, e.gc, 100, 100, 200, 150);
-                    XDrawLine(e.dpy, e.wid, e.gc, 100, 100, 300, 250);
-                    XFillArc(e.dpy, e.wid, e.gc, 400, 300, 100, 100, 0, 360*64);
-                }
-                break;
-            case KeyPress:
-                // Handle key press
-                e.rn = 0;
-                break;
+        // Handle events
+        while (XPending(e.dpy)) {
+            XNextEvent(e.dpy, &ev);
+            
+            switch (ev.type) {
+                case KeyPress:
+                    e.rn = 0;
+                    break;
+            }
         }
+        
+        // Timing
+        e.ct = tm();
+        e.dt = e.ct - e.lt;
+        
+        if (e.dt >= e.ft) {
+            e.lt = e.ct;
+            e.fc++;
+            
+            // Clear screen
+            XClearWindow(e.dpy, e.wid);
+            
+            // Update animation
+            x += dx;
+            y += dy;
+            
+            if (x > 700 || x < 100) dx = -dx;
+            if (y > 500 || y < 100) dy = -dy;
+            
+            // Draw moving object
+            XFillArc(e.dpy, e.wid, e.gc, x, y, 50, 50, 0, 360*64);
+            
+            // Draw FPS counter
+            char buf[16];
+            snprintf(buf, sizeof(buf), "FPS: %u", e.fps);
+            XDrawString(e.dpy, e.wid, e.gc, 10, 20, buf, strlen(buf));
+            
+            // Calculate actual FPS every second
+            if (e.fc % 60 == 0) {
+                u32 ct = tm();
+                u32 elapsed = ct - (e.lt - e.dt);
+                if (elapsed > 0) {
+                    e.fps = (60 * 1000) / elapsed;
+                }
+            }
+        }
+        
+        // Small sleep to prevent CPU hogging
+        usleep(1000);
     }
 }
 
