@@ -1,5 +1,6 @@
 #include "eng.h"
 #include <stdio.h>
+#include <string.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <sys/time.h>
@@ -42,6 +43,7 @@ void ini(void)
     gv.foreground = BlackPixel(e.dpy, s);
     gv.background = WhitePixel(e.dpy, s);
     gv.line_width = 2;
+    gv.background = WhitePixel(e.dpy, s);
     gv.line_style = LineSolid;
     
     e.gc = XCreateGC(e.dpy, e.wid, 
