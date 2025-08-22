@@ -21,6 +21,7 @@ typedef double f64;
 #define KEY_1 0x07
 #define KEY_2 0x08
 #define KEY_P 0x09
+#define KEY_B 0x0A
 
 // Audio codes
 #define SND_JUMP 0x01
@@ -30,6 +31,7 @@ typedef double f64;
 // Resource types
 #define RES_SPR 0x01
 #define RES_SND 0x02
+#define RES_TEX 0x03
 
 // Scene types
 #define SCENE_MENU 0x01
@@ -55,7 +57,17 @@ typedef struct {
     col clr;
     u8 vis;
     u32 id;
+    u32 tex_id; // Texture ID
 } spr;
+
+// Texture type
+typedef struct {
+    u32 id;
+    u32 w;
+    u32 h;
+    col* data;
+    u8 loaded;
+} tex;
 
 // Particle type
 typedef struct {
@@ -151,6 +163,7 @@ typedef struct {
     void* ahan; // audio handle
     res_mgr rm; // resource manager
     scn_mgr sm; // scene manager
+    u8 use_tex; // use textures
 } eng_t;
 
 // Engine functions
@@ -173,8 +186,15 @@ f32 v2_dot(v2 a, v2 b);
 spr spr_mk(v2 pos, v2 sz, col clr);
 void spr_add(spr s);
 void spr_drw(spr s);
+void spr_drw_tex(spr s);
 u8 spr_col(spr a, spr b);
 spr* spr_get(u32 id);
+
+// Texture functions
+u32 tex_load(const char* path);
+void tex_drw(u32 id, v2 pos, v2 sz);
+tex* tex_get(u32 id);
+void tex_free(u32 id);
 
 // Particle functions
 void part_init(void);

@@ -31,6 +31,31 @@ static part part_mk(v2 pos, v2 vel, col clr, f32 life, u8 type);
 static part_emit part_emit_mk(v2 pos, v2 vel_range, f32 life_range, u8 type, u32 rate);
 static void part_emit_gen(part_emit* e);
 
+// BMP file header
+#pragma pack(push, 1)
+typedef struct {
+    u16 type;
+    u32 size;
+    u16 reserved1;
+    u16 reserved2;
+    u32 offset;
+} bmp_hdr;
+
+typedef struct {
+    u32 size;
+    s32 width;
+    s32 height;
+    u16 planes;
+    u16 bpp;
+    u32 compression;
+    u32 image_size;
+    s32 x_ppm;
+    s32 y_ppm;
+    u32 colors_used;
+    u32 colors_important;
+} bmp_info_hdr;
+#pragma pack(pop)
+
 // Get current time in milliseconds
 static u32 tm(void)
 {
@@ -52,6 +77,7 @@ static u8 xk(KeySym ks)
         case XK_1: return KEY_1;
         case XK_2: return KEY_2;
         case XK_p: return KEY_P;
+        case XK_b: return KEY_B;
         default: return 0;
     }
 }
@@ -137,6 +163,7 @@ spr spr_mk(v2 pos, v2 sz, col clr)
     s.clr = clr;
     s.vis = 1;
     s.id = 0;
+    s.tex_id = 0;
     return s;
 }
 
@@ -157,6 +184,40 @@ void spr_drw(spr s)
                   (int)s.sz.x, (int)s.sz.y);
 }
 
+void spr_drw_tex(spr s)
+{
+    if (!s.vis || !s.tex_id) return;
+    
+    tex* t = tex_get(s.tex_id);
+    if (!t || !t->loaded) {
+        spr_drw(s); // Fallback to solid color
+        return;
+    }
+    
+    // Draw texture (pixel by pixel for now)
+    for (u32 y = 0; y < (u32)s.sz.y; y++) {
+        for (u32 x = 0; x < (u32)s.sz.x; x++) {
+            if (s.pos.x + x < 0 || s.pos.x + x >= 800 || 
+                s.pos.y + y < 0 || s.pos.y + y >= 600) {
+                continue;
+            }
+            
+            // Calculate texture coordinates
+            u32 tx = (x * t->w) / (u32)s.sz.x;
+            u32 ty = (y * t->h) / (u32)s.sz.y;
+            
+            // Get pixel color
+            col c = t->data[ty * t->w + tx];
+            
+            // Skip transparent pixels (black for now)
+            if (c.r == 0 && c.g == 0 && c.b == 0) continue;
+            
+            set_col(c);
+            XDrawPoint(e.dpy, e.wid, e.gc, (int)(s.pos.x + x), (int)(s.pos.y + y));
+        }
+    }
+}
+
 u8 spr_col(spr a, spr b)
 {
     if (!a.vis || !b.vis) return 0;
@@ -174,6 +235,146 @@ spr* spr_get(u32 id)
         }
     }
     return NULL;
+}
+
+// Texture functions implementation
+u32 tex_load(const char* path)
+{
+    FILE* f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "Failed to open texture: %s\n", path);
+        return 0;
+    }
+    
+    // Read BMP header
+    bmp_hdr hdr;
+    if (fread(&hdr, sizeof(bmp_hdr), 1, f) != 1) {
+        fclose(f);
+        fprintf(stderr, "Failed to read BMP header: %s\n", path);
+        return 0;
+    }
+    
+    // Check BMP signature
+    if (hdr.type != 0x4D42) { // 'BM'
+        fclose(f);
+        fprintf(stderr, "Not a BMP file: %s\n", path);
+        return 0;
+    }
+    
+    // Read info header
+    bmp_info_hdr info;
+    if (fread(&info, sizeof(bmp_info_hdr), 1, f) != 1) {
+        fclose(f);
+        fprintf(stderr, "Failed to read BMP info header: %s\n", path);
+        return 0;
+    }
+    
+    // Check if supported format (24-bit uncompressed)
+    if (info.bpp != 24 || info.compression != 0) {
+        fclose(f);
+        fprintf(stderr, "Unsupported BMP format (must be 24-bit uncompressed): %s\n", path);
+        return 0;
+    }
+    
+    // Allocate texture
+    tex* t = malloc(sizeof(tex));
+    if (!t) {
+        fclose(f);
+        fprintf(stderr, "Failed to allocate texture: %s\n", path);
+        return 0;
+    }
+    
+    t->w = info.width;
+    t->h = abs(info.height); // Handle flipped BMPs
+    t->data = malloc(t->w * t->h * sizeof(col));
+    t->loaded = 0;
+    
+    if (!t->data) {
+        fclose(f);
+        free(t);
+        fprintf(stderr, "Failed to allocate texture data: %s\n", path);
+        return 0;
+    }
+    
+    // Seek to pixel data
+    fseek(f, hdr.offset, SEEK_SET);
+    
+    // Read pixel data (BMP stores pixels in BGR format)
+    u32 row_size = ((info.width * 3 + 3) / 4) * 4; // BMP rows are padded to 4 bytes
+    u8* row = malloc(row_size);
+    
+    for (s32 y = t->h - 1; y >= 0; y--) {
+        if (fread(row, 1, row_size, f) != row_size) {
+            free(row);
+            fclose(f);
+            free(t->data);
+            free(t);
+            fprintf(stderr, "Failed to read BMP pixel data: %s\n", path);
+            return 0;
+        }
+        
+        for (u32 x = 0; x < t->w; x++) {
+            u32 idx = y * t->w + x;
+            t->data[idx].b = row[x * 3];     // Blue
+            t->data[idx].g = row[x * 3 + 1]; // Green
+            t->data[idx].r = row[x * 3 + 2]; // Red
+        }
+    }
+    
+    free(row);
+    fclose(f);
+    
+    t->loaded = 1;
+    printf("Loaded texture: %s (%ux%u)\n", path, t->w, t->h);
+    
+    // Add to resource manager
+    char name[16];
+    snprintf(name, sizeof(name), "tex_%u", e.rm.next_id);
+    return res_add(t, RES_TEX, name);
+}
+
+void tex_drw(u32 id, v2 pos, v2 sz)
+{
+    tex* t = tex_get(id);
+    if (!t || !t->loaded) return;
+    
+    // Draw texture (pixel by pixel for now)
+    for (u32 y = 0; y < (u32)sz.y; y++) {
+        for (u32 x = 0; x < (u32)sz.x; x++) {
+            if (pos.x + x < 0 || pos.x + x >= 800 || 
+                pos.y + y < 0 || pos.y + y >= 600) {
+                continue;
+            }
+            
+            // Calculate texture coordinates
+            u32 tx = (x * t->w) / (u32)sz.x;
+            u32 ty = (y * t->h) / (u32)sz.y;
+            
+            // Get pixel color
+            col c = t->data[ty * t->w + tx];
+            
+            // Skip transparent pixels (black for now)
+            if (c.r == 0 && c.g == 0 && c.b == 0) continue;
+            
+            set_col(c);
+            XDrawPoint(e.dpy, e.wid, e.gc, (int)(pos.x + x), (int)(pos.y + y));
+        }
+    }
+}
+
+tex* tex_get(u32 id)
+{
+    return (tex*)res_get(id);
+}
+
+void tex_free(u32 id)
+{
+    tex* t = tex_get(id);
+    if (t) {
+        if (t->data) free(t->data);
+        free(t);
+    }
+    res_del(id);
 }
 
 // Particle functions implementation
@@ -311,7 +512,7 @@ void part_drw(void)
             (u8)(c.b * alpha)
         };
         
-        set_col(draw_col);
+        set_col(ddraw_col);
         
         // Draw different shapes based on type
         switch (e.parts[i].type) {
@@ -395,6 +596,11 @@ void res_del(u32 id)
                 if (s && s->data) {
                     free(s->data);
                 }
+            } else if (e.rm.ress[i].type == RES_TEX) {
+                tex* t = (tex*)e.rm.ress[i].data;
+                if (t && t->data) {
+                    free(t->data);
+                }
             }
             free(e.rm.ress[i].data);
             
@@ -415,6 +621,11 @@ void res_clear(void)
             snd* s = (snd*)e.rm.ress[i].data;
             if (s && s->data) {
                 free(s->data);
+            }
+        } else if (e.rm.ress[i].type == RES_TEX) {
+            tex* t = (tex*)e.rm.ress[i].data;
+            if (t && t->data) {
+                free(t->data);
             }
         }
         free(e.rm.ress[i].data);
@@ -595,6 +806,7 @@ static v2 pos, vel, acc;
 static u8 was_space;
 static spr player;
 static u8 part_enabled = 1;
+static u32 player_tex = 0;
 
 static void game_init(void)
 {
@@ -608,6 +820,12 @@ static void game_init(void)
     
     // Create player sprite
     player = spr_mk(pos, v2_mk(50, 50), (col){255, 0, 0});
+    
+    // Load player texture
+    player_tex = tex_load("player.bmp");
+    if (player_tex) {
+        player.tex_id = player_tex;
+    }
     
     // Initialize particles
     part_init();
@@ -626,6 +844,15 @@ static void game_upd(void)
         was_p = 1;
     } else if (!key(KEY_P)) {
         was_p = 0;
+    }
+    
+    // Toggle textures with B key
+    static u8 was_b = 0;
+    if (key(KEY_B) && !was_b) {
+        e.use_tex = !e.use_tex;
+        was_b = 1;
+    } else if (!key(KEY_B)) {
+        was_b = 0;
     }
     
     // Handle input
@@ -737,8 +964,12 @@ static void game_drw(void)
         spr_drw(e.sprs[i]);
     }
     
-    // Draw player
-    spr_drw(player);
+    // Draw player (with texture if available and enabled)
+    if (e.use_tex && player.tex_id) {
+        spr_drw_tex(player);
+    } else {
+        spr_drw(player);
+    }
     
     // Draw particles
     if (part_enabled) {
@@ -762,11 +993,17 @@ static void game_drw(void)
     snprintf(part_buf, sizeof(part_buf), "Particles: %u (%s)", e.np, part_enabled ? "ON" : "OFF");
     XDrawString(e.dpy, e.wid, e.gc, 10, 120, part_buf, strlen(part_buf));
     
+    // Draw texture info
+    char tex_buf[32];
+    snprintf(tex_buf, sizeof(tex_buf), "Textures: %s", e.use_tex ? "ON" : "OFF");
+    XDrawString(e.dpy, e.wid, e.gc, 10, 140, tex_buf, strlen(tex_buf));
+    
     // Draw controls info
     XDrawString(e.dpy, e.wid, e.gc, 10, 40, "Arrows: Apply force", 19);
     XDrawString(e.dpy, e.wid, e.gc, 10, 60, "Space: Jump", 11);
     XDrawString(e.dpy, e.wid, e.gc, 10, 80, "P: Toggle particles", 19);
-    XDrawString(e.dpy, e.wid, e.gc, 10, 140, "ESC: Menu", 9);
+    XDrawString(e.dpy, e.wid, e.gc, 10, 160, "B: Toggle textures", 18);
+    XDrawString(e.dpy, e.wid, e.gc, 10, 180, "ESC: Menu", 9);
 }
 
 static void game_fin(void)
@@ -791,6 +1028,9 @@ void ini(void)
     
     // Initialize particle system
     part_init();
+    
+    // Initialize texture usage
+    e.use_tex = 0;
     
     // Open display
     e.dpy = XOpenDisplay(NULL);
