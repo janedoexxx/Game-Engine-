@@ -20,6 +20,7 @@ typedef double f64;
 #define KEY_RIGHT 0x06
 #define KEY_1 0x07
 #define KEY_2 0x08
+#define KEY_P 0x09
 
 // Audio codes
 #define SND_JUMP 0x01
@@ -33,6 +34,11 @@ typedef double f64;
 // Scene types
 #define SCENE_MENU 0x01
 #define SCENE_GAME 0x02
+
+// Particle types
+#define PART_DUST 0x01
+#define PART_SPARK 0x02
+#define PART_SMOKE 0x03
 
 // Vector types
 typedef struct { f32 x, y; } v2;
@@ -50,6 +56,29 @@ typedef struct {
     u8 vis;
     u32 id;
 } spr;
+
+// Particle type
+typedef struct {
+    v2 pos;
+    v2 vel;
+    v2 acc;
+    col clr;
+    f32 life;
+    f32 max_life;
+    u8 type;
+    u8 active;
+} part;
+
+// Particle emitter type
+typedef struct {
+    v2 pos;
+    v2 vel_range;
+    f32 life_range;
+    u8 type;
+    u8 active;
+    u32 rate;
+    u32 count;
+} part_emit;
 
 // Audio sample type
 typedef struct {
@@ -115,6 +144,10 @@ typedef struct {
     u8 keys[16]; // key states
     spr* sprs;  // sprite array
     u32 ns;     // number of sprites
+    part* parts; // particles array
+    u32 np;     // number of particles
+    part_emit* emits; // particle emitters
+    u32 ne;     // number of emitters
     void* ahan; // audio handle
     res_mgr rm; // resource manager
     scn_mgr sm; // scene manager
@@ -142,6 +175,14 @@ void spr_add(spr s);
 void spr_drw(spr s);
 u8 spr_col(spr a, spr b);
 spr* spr_get(u32 id);
+
+// Particle functions
+void part_init(void);
+void part_add(v2 pos, v2 vel, col clr, f32 life, u8 type);
+void part_emit_add(v2 pos, v2 vel_range, f32 life_range, u8 type, u32 rate);
+void part_upd(void);
+void part_drw(void);
+void part_clear(void);
 
 // Audio functions
 void aud_ini(void);

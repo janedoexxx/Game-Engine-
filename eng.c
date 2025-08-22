@@ -26,6 +26,11 @@ static void game_upd(void);
 static void game_drw(void);
 static void game_fin(void);
 
+// Particle functions
+static part part_mk(v2 pos, v2 vel, col clr, f32 life, u8 type);
+static part_emit part_emit_mk(v2 pos, v2 vel_range, f32 life_range, u8 type, u32 rate);
+static void part_emit_gen(part_emit* e);
+
 // Get current time in milliseconds
 static u32 tm(void)
 {
@@ -46,6 +51,7 @@ static u8 xk(KeySym ks)
         case XK_Right: return KEY_RIGHT;
         case XK_1: return KEY_1;
         case XK_2: return KEY_2;
+        case XK_p: return KEY_P;
         default: return 0;
     }
 }
@@ -170,6 +176,178 @@ spr* spr_get(u32 id)
     return NULL;
 }
 
+// Particle functions implementation
+part part_mk(v2 pos, v2 vel, col clr, f32 life, u8 type)
+{
+    part p;
+    p.pos = pos;
+    p.vel = vel;
+    p.acc = v2_mk(0, 0);
+    p.clr = clr;
+    p.life = life;
+    p.max_life = life;
+    p.type = type;
+    p.active = 1;
+    return p;
+}
+
+part_emit part_emit_mk(v2 pos, v2 vel_range, f32 life_range, u8 type, u32 rate)
+{
+    part_emit e;
+    e.pos = pos;
+    e.vel_range = vel_range;
+    e.life_range = life_range;
+    e.type = type;
+    e.active = 1;
+    e.rate = rate;
+    e.count = 0;
+    return e;
+}
+
+void part_emit_gen(part_emit* e)
+{
+    if (!e->active) return;
+    
+    e->count++;
+    if (e->count >= e->rate) {
+        e->count = 0;
+        
+        // Generate random velocity within range
+        v2 vel = v2_mk(
+            ((f32)rand() / RAND_MAX) * e->vel_range.x * 2 - e->vel_range.x,
+            ((f32)rand() / RAND_MAX) * e->vel_range.y * 2 - e->vel_range.y
+        );
+        
+        // Generate random life within range
+        f32 life = ((f32)rand() / RAND_MAX) * e->life_range;
+        
+        // Set color based on type
+        col clr;
+        switch (e->type) {
+            case PART_DUST:
+                clr = (col){200, 200, 200}; // Gray
+                break;
+            case PART_SPARK:
+                clr = (col){255, 255, 100}; // Yellow
+                break;
+            case PART_SMOKE:
+                clr = (col){100, 100, 100}; // Dark gray
+                break;
+            default:
+                clr = (col){255, 255, 255}; // White
+        }
+        
+        part_add(e->pos, vel, clr, life, e->type);
+    }
+}
+
+void part_init(void)
+{
+    e.parts = NULL;
+    e.np = 0;
+    e.emits = NULL;
+    e.ne = 0;
+}
+
+void part_add(v2 pos, v2 vel, col clr, f32 life, u8 type)
+{
+    if (e.np % 50 == 0) {
+        e.parts = realloc(e.parts, (e.np + 50) * sizeof(part));
+    }
+    e.parts[e.np++] = part_mk(pos, vel, clr, life, type);
+}
+
+void part_emit_add(v2 pos, v2 vel_range, f32 life_range, u8 type, u32 rate)
+{
+    if (e.ne % 5 == 0) {
+        e.emits = realloc(e.emits, (e.ne + 5) * sizeof(part_emit));
+    }
+    e.emits[e.ne++] = part_emit_mk(pos, vel_range, life_range, type, rate);
+}
+
+void part_upd(void)
+{
+    // Update particles
+    for (u32 i = 0; i < e.np; i++) {
+        if (!e.parts[i].active) continue;
+        
+        // Apply acceleration (gravity for dust/smoke, none for sparks)
+        if (e.parts[i].type != PART_SPARK) {
+            e.parts[i].acc.y += 0.05f;
+        }
+        
+        // Update velocity and position
+        e.parts[i].vel = v2_add(e.parts[i].vel, e.parts[i].acc);
+        e.parts[i].pos = v2_add(e.parts[i].pos, e.parts[i].vel);
+        
+        // Decrease life
+        e.parts[i].life -= 0.016f; // ~60fps
+        
+        // Deactivate if life is over
+        if (e.parts[i].life <= 0) {
+            e.parts[i].active = 0;
+        }
+    }
+    
+    // Generate particles from emitters
+    for (u32 i = 0; i < e.ne; i++) {
+        part_emit_gen(&e.emits[i]);
+    }
+}
+
+void part_drw(void)
+{
+    for (u32 i = 0; i < e.np; i++) {
+        if (!e.parts[i].active) continue;
+        
+        // Calculate alpha based on life
+        f32 alpha = e.parts[i].life / e.parts[i].max_life;
+        col c = e.parts[i].clr;
+        
+        // Adjust color based on alpha
+        col draw_col = {
+            (u8)(c.r * alpha),
+            (u8)(c.g * alpha),
+            (u8)(c.b * alpha)
+        };
+        
+        set_col(draw_col);
+        
+        // Draw different shapes based on type
+        switch (e.parts[i].type) {
+            case PART_DUST:
+                XDrawPoint(e.dpy, e.wid, e.gc, 
+                          (int)e.parts[i].pos.x, (int)e.parts[i].pos.y);
+                break;
+            case PART_SPARK:
+                XDrawLine(e.dpy, e.wid, e.gc,
+                         (int)e.parts[i].pos.x, (int)e.parts[i].pos.y,
+                         (int)(e.parts[i].pos.x - e.parts[i].vel.x),
+                         (int)(e.parts[i].pos.y - e.parts[i].vel.y));
+                break;
+            case PART_SMOKE:
+                XFillArc(e.dpy, e.wid, e.gc,
+                        (int)(e.parts[i].pos.x - 2), (int)(e.parts[i].pos.y - 2),
+                        4, 4, 0, 360*64);
+                break;
+        }
+    }
+}
+
+void part_clear(void)
+{
+    if (e.parts) {
+        free(e.parts);
+        e.parts = NULL;
+        e.np = 0;
+    }
+    if (e.emits) {
+        free(e.emits);
+        e.emits = NULL;
+        e.ne = 0;
+    }
+}
+
 // Resource functions implementation
 u32 res_add(void* data, u8 type, const char* name)
 {
@@ -268,112 +446,6 @@ void aud_ini(void)
     if (err < 0) {
         fprintf(stderr, "Audio set params error: %s\n", snd_strerror(err));
         snd_pcm_close((snd_pcm_t*)e.ahan);
-        e.aud = 0;
-        return;
-    }
-    
-    // Generate sound samples and add to resource manager
-    snd* jump_snd = malloc(sizeof(snd));
-    *jump_snd = gen_sin(440, 200, 44100);
-    res_add(jump_snd, RES_SND, "jump");
-    
-    snd* hit_snd = malloc(sizeof(snd));
-    *hit_snd = gen_sqr(220, 100, 44100);
-    res_add(hit_snd, RES_SND, "hit");
-    
-    snd* click_snd = malloc(sizeof(snd));
-    *click_snd = gen_sqr(880, 50, 44100);
-    res_add(click_snd, RES_SND, "click");
-    
-    e.aud = 1;
-    printf("Audio initialized\n");
-}
-
-void aud_play(u8 s)
-{
-    if (!e.aud) return;
-    
-    const char* snd_names[] = {"jump", "hit", "click"};
-    if (s >= sizeof(snd_names)/sizeof(snd_names[0])) return;
-    
-    snd* sound = (snd*)res_find(snd_names[s]);
-    if (!sound || !sound->data) return;
-    
-    int err = snd_pcm_writei((snd_pcm_t*)e.ahan, sound->data, sound->len);
-    if (err < 0) {
-        fprintf(stderr, "Audio write error: %s\n", snd_strerror(err));
-        snd_pcm_recover((snd_pcm_t*)e.ahan, err, 0);
-    }
-}
-
-void aud_fin(void)
-{
-    if (!e.aud) return;
-    
-    snd_pcm_close((snd_pcm_t*)e.ahan);
-    e.aud = 0;
-    printf("Audio shutdown\n");
-}
-
-snd* snd_get(u32 id)
-{
-    return (snd*)res_get(id);
-}
-
-// Scene functions implementation
-void scn_add(u32 id, scn_init_fn init, scn_upd_fn upd, scn_drw_fn drw, scn_fin_fn fin)
-{
-    if (e.sm.ns % 5 == 0) {
-        e.sm.scns = realloc(e.sm.scns, (e.sm.ns + 5) * sizeof(scn));
-    }
-    
-    scn* s = &e.sm.scns[e.sm.ns++];
-    s->id = id;
-    s->init = init;
-    s->upd = upd;
-    s->drw = drw;
-    s->fin = fin;
-    s->active = 0;
-}
-
-void scn_set(u32 id)
-{
-    // Deactivate current scene
-    if (e.sm.cur < e.sm.ns) {
-        scn* cur = &e.sm.scns[e.sm.cur];
-        if (cur->fin) cur->fin();
-        cur->active = 0;
-    }
-    
-    // Find and activate new scene
-    for (u32 i = 0; i < e.sm.ns; i++) {
-        if (e.sm.scns[i].id == id) {
-            e.sm.cur = i;
-            e.sm.scns[i].active = 1;
-            if (e.sm.scns[i].init) e.sm.scns[i].init();
-            return;
-        }
-    }
-    
-    // Fallback to first scene if not found
-    if (e.sm.ns > 0) {
-        e.sm.cur = 0;
-        e.sm.scns[0].active = 1;
-        if (e.sm.scns[0].init) e.sm.scns[0].init();
-    }
-}
-
-void scn_upd(void)
-{
-    if (e.sm.cur < e.sm.ns && e.sm.scns[e.sm.cur].upd) {
-        e.sm.scns[e.sm.cur].upd();
-    }
-}
-
-void scn_drw(void)
-{
-    if (e.sm.cur < e.sm.ns && e.sm.scns[e.sm.cur].drw) {
-        e.sm.scns[e.sm.cur].drw();
     }
 }
 
@@ -381,6 +453,7 @@ void scn_drw(void)
 static void menu_init(void)
 {
     printf("Menu scene initialized\n");
+    part_clear();
 }
 
 static void menu_upd(void)
@@ -415,6 +488,7 @@ static void menu_fin(void)
 static v2 pos, vel, acc;
 static u8 was_space;
 static spr player;
+static u8 part_enabled = 1;
 
 static void game_init(void)
 {
@@ -428,10 +502,26 @@ static void game_init(void)
     
     // Create player sprite
     player = spr_mk(pos, v2_mk(50, 50), (col){255, 0, 0});
+    
+    // Initialize particles
+    part_init();
+    
+    // Add particle emitters
+    part_emit_add(v2_mk(400, 300), v2_mk(1, 1), 2.0f, PART_DUST, 2);
+    part_emit_add(v2_mk(400, 300), v2_mk(0.5, 0.5), 1.5f, PART_SMOKE, 5);
 }
 
 static void game_upd(void)
 {
+    // Toggle particles with P key
+    static u8 was_p = 0;
+    if (key(KEY_P) && !was_p) {
+        part_enabled = !part_enabled;
+        was_p = 1;
+    } else if (!key(KEY_P)) {
+        was_p = 0;
+    }
+    
     // Handle input
     if (key(KEY_UP)) acc.y = -0.2f;
     else if (key(KEY_DOWN)) acc.y = 0.2f;
@@ -446,6 +536,18 @@ static void game_upd(void)
         vel.y = -5.0f;
         aud_play(SND_JUMP);
         was_space = 1;
+        
+        // Add jump particles
+        if (part_enabled) {
+            for (int i = 0; i < 10; i++) {
+                v2 part_vel = v2_mk(
+                    ((f32)rand() / RAND_MAX) * 4 - 2,
+                    ((f32)rand() / RAND_MAX) * -3 - 1
+                );
+                part_add(v2_mk(pos.x + 25, pos.y + 50), part_vel, 
+                        (col){255, 255, 100}, 1.0f, PART_SPARK);
+            }
+        }
     } else if (!key(KEY_SPACE)) {
         was_space = 0;
     }
@@ -473,6 +575,18 @@ static void game_upd(void)
             }
             
             player.pos = pos;
+            
+            // Add hit particles
+            if (part_enabled && hit) {
+                for (int j = 0; j < 5; j++) {
+                    v2 part_vel = v2_mk(
+                        ((f32)rand() / RAND_MAX) * 6 - 3,
+                        ((f32)rand() / RAND_MAX) * -4 - 1
+                    );
+                    part_add(v2_mk(pos.x + 25, pos.y + 25), part_vel, 
+                            (col){200, 200, 200}, 0.8f, PART_DUST);
+                }
+            }
         }
     }
     
@@ -496,6 +610,11 @@ static void game_upd(void)
         player.pos = pos;
     }
     
+    // Update particles
+    if (part_enabled) {
+        part_upd();
+    }
+    
     // Return to menu on ESC
     if (key(KEY_ESC)) {
         scn_set(SCENE_MENU);
@@ -515,6 +634,11 @@ static void game_drw(void)
     // Draw player
     spr_drw(player);
     
+    // Draw particles
+    if (part_enabled) {
+        part_drw();
+    }
+    
     // Draw FPS counter
     char buf[64];
     snprintf(buf, sizeof(buf), "FPS: %u POS: (%.1f, %.1f) VEL: (%.1f, %.1f)", 
@@ -527,15 +651,22 @@ static void game_drw(void)
     snprintf(res_buf, sizeof(res_buf), "Resources: %u", e.rm.nr);
     XDrawString(e.dpy, e.wid, e.gc, 10, 100, res_buf, strlen(res_buf));
     
+    // Draw particle info
+    char part_buf[32];
+    snprintf(part_buf, sizeof(part_buf), "Particles: %u (%s)", e.np, part_enabled ? "ON" : "OFF");
+    XDrawString(e.dpy, e.wid, e.gc, 10, 120, part_buf, strlen(part_buf));
+    
     // Draw controls info
     XDrawString(e.dpy, e.wid, e.gc, 10, 40, "Arrows: Apply force", 19);
     XDrawString(e.dpy, e.wid, e.gc, 10, 60, "Space: Jump", 11);
-    XDrawString(e.dpy, e.wid, e.gc, 10, 80, "ESC: Menu", 9);
+    XDrawString(e.dpy, e.wid, e.gc, 10, 80, "P: Toggle particles", 19);
+    XDrawString(e.dpy, e.wid, e.gc, 10, 140, "ESC: Menu", 9);
 }
 
 static void game_fin(void)
 {
     printf("Game scene finished\n");
+    part_clear();
 }
 
 void ini(void)
@@ -551,6 +682,9 @@ void ini(void)
     e.sm.scns = NULL;
     e.sm.ns = 0;
     e.sm.cur = 0;
+    
+    // Initialize particle system
+    part_init();
     
     // Open display
     e.dpy = XOpenDisplay(NULL);
@@ -718,6 +852,9 @@ void fin(void)
         free(e.sprs);
         printf("Sprites freed\n");
     }
+    
+    // Clear particles
+    part_clear();
     
     // Clear all resources
     res_clear();
