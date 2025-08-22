@@ -19,6 +19,11 @@ typedef double f64;
 #define KEY_LEFT 0x05
 #define KEY_RIGHT 0x06
 
+// Audio codes
+#define SND_JUMP 0x01
+#define SND_HIT 0x02
+#define SND_CLICK 0x03
+
 // Vector types
 typedef struct { f32 x, y; } v2;
 typedef struct { f32 x, y, z; } v3;
@@ -35,10 +40,19 @@ typedef struct {
     u8 vis;
 } spr;
 
+// Audio sample type
+typedef struct {
+    s16* data;
+    u32 len;
+    u32 rate;
+    u8 ch;
+} snd;
+
 // Engine state
 typedef struct {
     u8 rn;      // running
     u8 win;     // window created
+    u8 aud;     // audio initialized
     void* dpy;  // display
     u32 wid;    // window id
     void* gc;   // graphics context
@@ -51,6 +65,8 @@ typedef struct {
     u8 keys[16]; // key states
     spr* sprs;  // sprite array
     u32 ns;     // number of sprites
+    snd snds[8]; // sound samples
+    void* ahan; // audio handle
 } eng_t;
 
 // Engine functions
@@ -74,5 +90,10 @@ spr spr_mk(v2 pos, v2 sz, col clr);
 void spr_add(spr s);
 void spr_drw(spr s);
 u8 spr_col(spr a, spr b);
+
+// Audio functions
+void aud_ini(void);
+void aud_play(u8 s);
+void aud_fin(void);
 
 #endif

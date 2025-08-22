@@ -1,6 +1,6 @@
 CC=gcc
 CFLAGS=-Wall -Wextra -std=c99 -pedantic
-LIBS=-lm -lX11
+LIBS=-lm -lX11 -lasound
 
 all: eng
 

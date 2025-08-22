@@ -9,6 +9,7 @@
 #include <X11/keysym.h>
 #include <sys/time.h>
 #include <time.h>
+#include <alsa/asoundlib.h>
 
 // Engine state
 static eng_t e;
@@ -48,6 +49,51 @@ static void set_col(col c)
     
     XAllocColor(e.dpy, cm, &xc);
     XSetForeground(e.dpy, e.gc, xc.pixel);
+}
+
+// Generate sine wave audio sample
+static snd gen_sin(u32 hz, u32 ms, u32 rate)
+{
+    snd s;
+    s.rate = rate;
+    s.ch = 1;
+    s.len = (rate * ms) / 1000;
+    s.data = malloc(s.len * sizeof(s16));
+    
+    if (!s.data) {
+        s.len = 0;
+        return s;
+    }
+    
+    for (u32 i = 0; i < s.len; i++) {
+        s16 sample = 3000 * sin(2 * M_PI * hz * i / rate);
+        s.data[i] = sample;
+    }
+    
+    return s;
+}
+
+// Generate square wave audio sample
+static snd gen_sqr(u32 hz, u32 ms, u32 rate)
+{
+    snd s;
+    s.rate = rate;
+    s.ch = 1;
+    s.len = (rate * ms) / 1000;
+    s.data = malloc(s.len * sizeof(s16));
+    
+    if (!s.data) {
+        s.len = 0;
+        return s;
+    }
+    
+    u32 period = rate / hz;
+    for (u32 i = 0; i < s.len; i++) {
+        s16 sample = ((i % period) < (period / 2)) ? 8000 : -8000;
+        s.data[i] = sample;
+    }
+    
+    return s;
 }
 
 // Vector functions implementation
@@ -95,6 +141,67 @@ u8 spr_col(spr a, spr b)
             a.pos.x + a.sz.x > b.pos.x &&
             a.pos.y < b.pos.y + b.sz.y &&
             a.pos.y + a.sz.y > b.pos.y);
+}
+
+// Audio functions implementation
+void aud_ini(void)
+{
+    int err;
+    
+    // Open PCM device
+    err = snd_pcm_open(&e.ahan, "default", SND_PCM_STREAM_PLAYBACK, 0);
+    if (err < 0) {
+        fprintf(stderr, "Audio open error: %s\n", snd_strerror(err));
+        e.aud = 0;
+        return;
+    }
+    
+    // Set parameters
+    err = snd_pcm_set_params(e.ahan,
+                            SND_PCM_FORMAT_S16_LE,
+                            SND_PCM_ACCESS_RW_INTERLEAVED,
+                            1, 44100, 1, 50000);
+    if (err < 0) {
+        fprintf(stderr, "Audio set params error: %s\n", snd_strerror(err));
+        snd_pcm_close(e.ahan);
+        e.aud = 0;
+        return;
+    }
+    
+    // Generate sound samples
+    e.snds[SND_JUMP] = gen_sin(440, 200, 44100);   // A4 note
+    e.snds[SND_HIT] = gen_sqr(220, 100, 44100);    // A3 note
+    e.snds[SND_CLICK] = gen_sqr(880, 50, 44100);   // A5 note
+    
+    e.aud = 1;
+    printf("Audio initialized\n");
+}
+
+void aud_play(u8 s)
+{
+    if (!e.aud || s >= 8 || !e.snds[s].data) return;
+    
+    int err = snd_pcm_writei(e.ahan, e.snds[s].data, e.snds[s].len);
+    if (err < 0) {
+        fprintf(stderr, "Audio write error: %s\n", snd_strerror(err));
+        snd_pcm_recover(e.ahan, err, 0);
+    }
+}
+
+void aud_fin(void)
+{
+    if (!e.aud) return;
+    
+    // Free sound samples
+    for (int i = 0; i < 8; i++) {
+        if (e.snds[i].data) {
+            free(e.snds[i].data);
+        }
+    }
+    
+    snd_pcm_close(e.ahan);
+    e.aud = 0;
+    printf("Audio shutdown\n");
 }
 
 void ini(void)
@@ -162,6 +269,9 @@ void ini(void)
     spr_add(spr_mk(v2_mk(100, 400), v2_mk(50, 50), blue));
     spr_add(spr_mk(v2_mk(600, 300), v2_mk(50, 50), blue));
     
+    // Init audio
+    aud_ini();
+    
     e.win = 1;
     e.rn = 1;
     
@@ -179,6 +289,7 @@ void run(void)
     static v2 pos = {100.0f, 100.0f};
     static v2 vel = {2.0f, 3.0f};
     static v2 acc = {0.0f, 0.1f}; // Gravity
+    static u8 was_space = 0;
     
     // Create player sprite
     spr player = spr_mk(pos, v2_mk(50, 50), (col){255, 0, 0});
@@ -197,6 +308,9 @@ void run(void)
                         e.keys[k] = (ev.type == KeyPress);
                         if (k == KEY_ESC && ev.type == KeyPress) {
                             e.rn = 0;
+                        }
+                        if (k == KEY_SPACE && ev.type == KeyPress) {
+                            aud_play(SND_CLICK);
                         }
                     }
                     break;
@@ -221,9 +335,13 @@ void run(void)
             else if (e.keys[KEY_RIGHT]) acc.x = 0.2f;
             else acc.x = 0.0f;
             
-            if (e.keys[KEY_SPACE]) {
-                // Jump
+            // Jump with sound
+            if (e.keys[KEY_SPACE] && !was_space) {
                 vel.y = -5.0f;
+                aud_play(SND_JUMP);
+                was_space = 1;
+            } else if (!e.keys[KEY_SPACE]) {
+                was_space = 0;
             }
             
             // Physics update
@@ -234,8 +352,10 @@ void run(void)
             player.pos = pos;
             
             // Check collisions with sprites
+            u8 hit = 0;
             for (u32 i = 0; i < e.ns; i++) {
                 if (spr_col(player, e.sprs[i])) {
+                    hit = 1;
                     // Simple collision response
                     vel.y = -vel.y * 0.8f;
                     
@@ -248,6 +368,11 @@ void run(void)
                     
                     player.pos = pos;
                 }
+            }
+            
+            // Play hit sound
+            if (hit) {
+                aud_play(SND_HIT);
             }
             
             // Boundary collision
@@ -313,6 +438,9 @@ void fin(void)
         free(e.sprs);
         printf("Sprites freed\n");
     }
+    
+    // Shutdown audio
+    aud_fin();
     
     if (e.gc) {
         XFreeGC(e.dpy, e.gc);
