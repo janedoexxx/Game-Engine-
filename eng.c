@@ -27,7 +27,7 @@ static u32 tm(void)
 static u8 xk(KeySym ks)
 {
     switch (ks) {
-        case XK_Escape: return KEY_ESC;
+        case XK_Eescape: return KEY_ESC;
         case XK_space: return KEY_SPACE;
         case XK_Up: return KEY_UP;
         case XK_Down: return KEY_DOWN;
@@ -60,6 +60,7 @@ static snd gen_sin(u32 hz, u32 ms, u32 rate)
     s.ch = 1;
     s.len = (rate * ms) / 1000;
     s.data = malloc(s.len * sizeof(s16));
+    s.id = 0;
     
     if (!s.data) {
         s.len = 0;
@@ -82,6 +83,7 @@ static snd gen_sqr(u32 hz, u32 ms, u32 rate)
     s.ch = 1;
     s.len = (rate * ms) / 1000;
     s.data = malloc(s.len * sizeof(s16));
+    s.id = 0;
     
     if (!s.data) {
         s.len = 0;
@@ -115,6 +117,7 @@ spr spr_mk(v2 pos, v2 sz, col clr)
     s.sz = sz;
     s.clr = clr;
     s.vis = 1;
+    s.id = 0;
     return s;
 }
 
@@ -144,6 +147,93 @@ u8 spr_col(spr a, spr b)
             a.pos.y + a.sz.y > b.pos.y);
 }
 
+spr* spr_get(u32 id)
+{
+    for (u32 i = 0; i < e.ns; i++) {
+        if (e.sprs[i].id == id) {
+            return &e.sprs[i];
+        }
+    }
+    return NULL;
+}
+
+// Resource functions implementation
+u32 res_add(void* data, u8 type, const char* name)
+{
+    if (e.rm.nr % 10 == 0) {
+        e.rm.ress = realloc(e.rm.ress, (e.rm.nr + 10) * sizeof(res));
+    }
+    
+    res* r = &e.rm.ress[e.rm.nr++];
+    r->id = e.rm.next_id++;
+    r->type = type;
+    r->data = data;
+    strncpy(r->name, name, sizeof(r->name) - 1);
+    r->name[sizeof(r->name) - 1] = '\0';
+    
+    return r->id;
+}
+
+void* res_get(u32 id)
+{
+    for (u32 i = 0; i < e.rm.nr; i++) {
+        if (e.rm.ress[i].id == id) {
+            return e.rm.ress[i].data;
+        }
+    }
+    return NULL;
+}
+
+void* res_find(const char* name)
+{
+    for (u32 i = 0; i < e.rm.nr; i++) {
+        if (strcmp(e.rm.ress[i].name, name) == 0) {
+            return e.rm.ress[i].data;
+        }
+    }
+    return NULL;
+}
+
+void res_del(u32 id)
+{
+    for (u32 i = 0; i < e.rm.nr; i++) {
+        if (e.rm.ress[i].id == id) {
+            // Free the resource data
+            if (e.rm.ress[i].type == RES_SND) {
+                snd* s = (snd*)e.rm.ress[i].data;
+                if (s && s->data) {
+                    free(s->data);
+                }
+            }
+            free(e.rm.ress[i].data);
+            
+            // Move last element to this position
+            if (i < e.rm.nr - 1) {
+                e.rm.ress[i] = e.rm.ress[e.rm.nr - 1];
+            }
+            e.rm.nr--;
+            return;
+        }
+    }
+}
+
+void res_clear(void)
+{
+    for (u32 i = 0; i < e.rm.nr; i++) {
+        if (e.rm.ress[i].type == RES_SND) {
+            snd* s = (snd*)e.rm.ress[i].data;
+            if (s && s->data) {
+                free(s->data);
+            }
+        }
+        free(e.rm.ress[i].data);
+    }
+    free(e.rm.ress);
+    e.rm.ress = NULL;
+    e.rm.nr = 0;
+    e.rm.next_id = 1;
+}
+
 // Audio functions implementation
 void aud_ini(void)
 {
@@ -169,10 +259,18 @@ void aud_ini(void)
         return;
     }
     
-    // Generate sound samples
-    e.snds[SND_JUMP] = gen_sin(440, 200, 44100);   // A4 note
-    e.snds[SND_HIT] = gen_sqr(220, 100, 44100);    // A3 note
-    e.snds[SND_CLICK] = gen_sqr(880, 50, 44100);   // A5 note
+    // Generate sound samples and add to resource manager
+    snd* jump_snd = malloc(sizeof(snd));
+    *jump_snd = gen_sin(440, 200, 44100);
+    res_add(jump_snd, RES_SND, "jump");
+    
+    snd* hit_snd = malloc(sizeof(snd));
+    *hit_snd = gen_sqr(220, 100, 44100);
+    res_add(hit_snd, RES_SND, "hit");
+    
+    snd* click_snd = malloc(sizeof(snd));
+    *click_snd = gen_sqr(880, 50, 44100);
+    res_add(click_snd, RES_SND, "click");
     
     e.aud = 1;
     printf("Audio initialized\n");
@@ -180,9 +278,15 @@ void aud_ini(void)
 
 void aud_play(u8 s)
 {
-    if (!e.aud || s >= 8 || !e.snds[s].data) return;
+    if (!e.aud) return;
     
-    int err = snd_pcm_writei((snd_pcm_t*)e.ahan, e.snds[s].data, e.snds[s].len);
+    const char* snd_names[] = {"jump", "hit", "click"};
+    if (s >= sizeof(snd_names)/sizeof(snd_names[0])) return;
+    
+    snd* sound = (snd*)res_find(snd_names[s]);
+    if (!sound || !sound->data) return;
+    
+    int err = snd_pcm_writei((snd_pcm_t*)e.ahan, sound->data, sound->len);
     if (err < 0) {
         fprintf(stderr, "Audio write error: %s\n", snd_strerror(err));
         snd_pcm_recover((snd_pcm_t*)e.ahan, err, 0);
@@ -193,21 +297,24 @@ void aud_fin(void)
 {
     if (!e.aud) return;
     
-    // Free sound samples
-    for (int i = 0; i < 8; i++) {
-        if (e.snds[i].data) {
-            free(e.snds[i].data);
-        }
-    }
-    
     snd_pcm_close((snd_pcm_t*)e.ahan);
     e.aud = 0;
     printf("Audio shutdown\n");
 }
 
+snd* snd_get(u32 id)
+{
+    return (snd*)res_get(id);
+}
+
 void ini(void)
 {
     printf("Engine init\n");
+    
+    // Initialize resource manager
+    e.rm.ress = NULL;
+    e.rm.nr = 0;
+    e.rm.next_id = 1;
     
     // Open display
     e.dpy = XOpenDisplay(NULL);
@@ -258,16 +365,26 @@ void ini(void)
     e.sprs = NULL;
     e.ns = 0;
     
-    // Create some test sprites
+    // Create some test sprites and add to resource manager
     col green = {0, 255, 0};
     col blue = {0, 0, 255};
     
     // Platform
-    spr_add(spr_mk(v2_mk(300, 500), v2_mk(200, 20), green));
+    spr* platform = malloc(sizeof(spr));
+    *platform = spr_mk(v2_mk(300, 500), v2_mk(200, 20), green);
+    platform->id = res_add(platform, RES_SPR, "platform");
+    spr_add(*platform);
     
     // Obstacles
-    spr_add(spr_mk(v2_mk(100, 400), v2_mk(50, 50), blue));
-    spr_add(spr_mk(v2_mk(600, 300), v2_mk(50, 50), blue));
+    spr* obstacle1 = malloc(sizeof(spr));
+    *obstacle1 = spr_mk(v2_mk(100, 400), v2_mk(50, 50), blue);
+    obstacle1->id = res_add(obstacle1, RES_SPR, "obstacle1");
+    spr_add(*obstacle1);
+    
+    spr* obstacle2 = malloc(sizeof(spr));
+    *obstacle2 = spr_mk(v2_mk(600, 300), v2_mk(50, 50), blue);
+    obstacle2->id = res_add(obstacle2, RES_SPR, "obstacle2");
+    spr_add(*obstacle2);
     
     // Init audio
     aud_ini();
@@ -277,6 +394,7 @@ void ini(void)
     
     printf("Window created\n");
     printf("Sprites initialized: %u\n", e.ns);
+    printf("Resources loaded: %u\n", e.rm.nr);
 }
 
 void run(void)
@@ -408,6 +526,11 @@ void run(void)
             set_col((col){0, 0, 0}); // Black text
             XDrawString(e.dpy, e.wid, e.gc, 10, 20, buf, strlen(buf));
             
+            // Draw resource info
+            char res_buf[32];
+            snprintf(res_buf, sizeof(res_buf), "Resources: %u", e.rm.nr);
+            XDrawString(e.dpy, e.wid, e.gc, 10, 100, res_buf, strlen(res_buf));
+            
             // Draw controls info
             XDrawString(e.dpy, e.wid, e.gc, 10, 40, "Arrows: Apply force", 19);
             XDrawString(e.dpy, e.wid, e.gc, 10, 60, "Space: Jump", 11);
@@ -438,6 +561,9 @@ void fin(void)
         free(e.sprs);
         printf("Sprites freed\n");
     }
+    
+    // Clear all resources
+    res_clear();
     
     // Shutdown audio
     aud_fin();

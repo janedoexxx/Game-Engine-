@@ -24,6 +24,10 @@ typedef double f64;
 #define SND_HIT 0x02
 #define SND_CLICK 0x03
 
+// Resource types
+#define RES_SPR 0x01
+#define RES_SND 0x02
+
 // Vector types
 typedef struct { f32 x, y; } v2;
 typedef struct { f32 x, y, z; } v3;
@@ -38,6 +42,7 @@ typedef struct {
     v2 sz;
     col clr;
     u8 vis;
+    u32 id;
 } spr;
 
 // Audio sample type
@@ -46,7 +51,23 @@ typedef struct {
     u32 len;
     u32 rate;
     u8 ch;
+    u32 id;
 } snd;
+
+// Resource entry
+typedef struct {
+    u32 id;
+    u8 type;
+    void* data;
+    char name[16];
+} res;
+
+// Resource manager
+typedef struct {
+    res* ress;
+    u32 nr;
+    u32 next_id;
+} res_mgr;
 
 // Engine state
 typedef struct {
@@ -65,8 +86,8 @@ typedef struct {
     u8 keys[16]; // key states
     spr* sprs;  // sprite array
     u32 ns;     // number of sprites
-    snd snds[8]; // sound samples
     void* ahan; // audio handle
+    res_mgr rm; // resource manager
 } eng_t;
 
 // Engine functions
@@ -90,10 +111,19 @@ spr spr_mk(v2 pos, v2 sz, col clr);
 void spr_add(spr s);
 void spr_drw(spr s);
 u8 spr_col(spr a, spr b);
+spr* spr_get(u32 id);
 
 // Audio functions
 void aud_ini(void);
 void aud_play(u8 s);
 void aud_fin(void);
+snd* snd_get(u32 id);
+
+// Resource functions
+u32 res_add(void* data, u8 type, const char* name);
+void* res_get(u32 id);
+void* res_find(const char* name);
+void res_del(u32 id);
+void res_clear(void);
 
 #endif
