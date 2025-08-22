@@ -11,6 +11,14 @@ typedef signed int s32;
 typedef float f32;
 typedef double f64;
 
+// Key codes
+#define KEY_ESC 0x01
+#define KEY_SPACE 0x02
+#define KEY_UP 0x03
+#define KEY_DOWN 0x04
+#define KEY_LEFT 0x05
+#define KEY_RIGHT 0x06
+
 // Engine state
 typedef struct {
     u8 rn;      // running
@@ -24,11 +32,13 @@ typedef struct {
     u32 fps;    // frames per second
     u32 fc;     // frame counter
     u32 ft;     // frame time
+    u8 keys[16]; // key states
 } eng_t;
 
 // Engine functions
 void ini(void);
 void run(void);
 void fin(void);
+u8 key(u8 k);
 
 #endif

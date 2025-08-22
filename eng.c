@@ -4,6 +4,7 @@
 #include <string.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/keysym.h>
 #include <sys/time.h>
 #include <time.h>
 
@@ -16,6 +17,20 @@ static u32 tm(void)
     struct timeval tv;
     gettimeofday(&tv, NULL);
     return (tv.tv_sec * 1000) + (tv.tv_usec / 1000);
+}
+
+// Convert X11 key to engine key code
+static u8 xk(KeySym ks)
+{
+    switch (ks) {
+        case XK_Escape: return KEY_ESC;
+        case XK_space: return KEY_SPACE;
+        case XK_Up: return KEY_UP;
+        case XK_Down: return KEY_DOWN;
+        case XK_Left: return KEY_LEFT;
+        case XK_Right: return KEY_RIGHT;
+        default: return 0;
+    }
 }
 
 void ini(void)
@@ -51,7 +66,7 @@ void ini(void)
                     &gv);
     
     // Select events
-    XSelectInput(e.dpy, e.wid, ExposureMask | KeyPressMask);
+    XSelectInput(e.dpy, e.wid, ExposureMask | KeyPressMask | KeyReleaseMask);
     
     // Map window
     XMapWindow(e.dpy, e.wid);
@@ -61,6 +76,11 @@ void ini(void)
     e.fps = 60;
     e.fc = 0;
     e.ft = 1000 / e.fps;
+    
+    // Clear key states
+    for (int i = 0; i < 16; i++) {
+        e.keys[i] = 0;
+    }
     
     e.win = 1;
     e.rn = 1;
@@ -85,8 +105,17 @@ void run(void)
             
             switch (ev.type) {
                 case KeyPress:
-                    e.rn = 0;
+                case KeyRelease: {
+                    KeySym ks = XLookupKeysym(&ev.xkey, 0);
+                    u8 k = xk(ks);
+                    if (k) {
+                        e.keys[k] = (ev.type == KeyPress);
+                        if (k == KEY_ESC && ev.type == KeyPress) {
+                            e.rn = 0;
+                        }
+                    }
                     break;
+                }
             }
         }
         
@@ -97,6 +126,16 @@ void run(void)
         if (e.dt >= e.ft) {
             e.lt = e.ct;
             e.fc++;
+            
+            // Handle input
+            if (e.keys[KEY_UP]) dy -= 1;
+            if (e.keys[KEY_DOWN]) dy += 1;
+            if (e.keys[KEY_LEFT]) dx -= 1;
+            if (e.keys[KEY_RIGHT]) dx += 1;
+            if (e.keys[KEY_SPACE]) {
+                dx = 2;
+                dy = 3;
+            }
             
             // Clear screen
             XClearWindow(e.dpy, e.wid);
@@ -112,9 +151,14 @@ void run(void)
             XFillArc(e.dpy, e.wid, e.gc, x, y, 50, 50, 0, 360*64);
             
             // Draw FPS counter
-            char buf[16];
-            snprintf(buf, sizeof(buf), "FPS: %u", e.fps);
+            char buf[32];
+            snprintf(buf, sizeof(buf), "FPS: %u DX: %d DY: %d", e.fps, dx, dy);
             XDrawString(e.dpy, e.wid, e.gc, 10, 20, buf, strlen(buf));
+            
+            // Draw controls info
+            XDrawString(e.dpy, e.wid, e.gc, 10, 40, "Arrows: Change speed", 20);
+            XDrawString(e.dpy, e.wid, e.gc, 10, 60, "Space: Reset speed", 18);
+            XDrawString(e.dpy, e.wid, e.gc, 10, 80, "ESC: Quit", 9);
             
             // Calculate actual FPS every second
             if (e.fc % 60 == 0) {
@@ -149,4 +193,12 @@ void fin(void)
     
     printf("Engine shutdown\n");
     e.rn = 0;
+}
+
+u8 key(u8 k)
+{
+    if (k < 16) {
+        return e.keys[k];
+    }
+    return 0;
 }
