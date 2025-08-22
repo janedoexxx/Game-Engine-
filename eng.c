@@ -27,7 +27,7 @@ static u32 tm(void)
 static u8 xk(KeySym ks)
 {
     switch (ks) {
-        case XK_Eescape: return KEY_ESC;
+        case XK_Escape: return KEY_ESC;
         case XK_space: return KEY_SPACE;
         case XK_Up: return KEY_UP;
         case XK_Down: return KEY_DOWN;
