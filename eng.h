@@ -18,6 +18,8 @@ typedef double f64;
 #define KEY_DOWN 0x04
 #define KEY_LEFT 0x05
 #define KEY_RIGHT 0x06
+#define KEY_1 0x07
+#define KEY_2 0x08
 
 // Audio codes
 #define SND_JUMP 0x01
@@ -27,6 +29,10 @@ typedef double f64;
 // Resource types
 #define RES_SPR 0x01
 #define RES_SND 0x02
+
+// Scene types
+#define SCENE_MENU 0x01
+#define SCENE_GAME 0x02
 
 // Vector types
 typedef struct { f32 x, y; } v2;
@@ -69,6 +75,29 @@ typedef struct {
     u32 next_id;
 } res_mgr;
 
+// Scene functions
+typedef void (*scn_init_fn)(void);
+typedef void (*scn_upd_fn)(void);
+typedef void (*scn_drw_fn)(void);
+typedef void (*scn_fin_fn)(void);
+
+// Scene
+typedef struct {
+    u32 id;
+    scn_init_fn init;
+    scn_upd_fn upd;
+    scn_drw_fn drw;
+    scn_fin_fn fin;
+    u8 active;
+} scn;
+
+// Scene manager
+typedef struct {
+    scn* scns;
+    u32 ns;
+    u32 cur;
+} scn_mgr;
+
 // Engine state
 typedef struct {
     u8 rn;      // running
@@ -88,6 +117,7 @@ typedef struct {
     u32 ns;     // number of sprites
     void* ahan; // audio handle
     res_mgr rm; // resource manager
+    scn_mgr sm; // scene manager
 } eng_t;
 
 // Engine functions
@@ -125,5 +155,11 @@ void* res_get(u32 id);
 void* res_find(const char* name);
 void res_del(u32 id);
 void res_clear(void);
+
+// Scene functions
+void scn_add(u32 id, scn_init_fn init, scn_upd_fn upd, scn_drw_fn drw, scn_fin_fn fin);
+void scn_set(u32 id);
+void scn_upd(void);
+void scn_drw(void);
 
 #endif

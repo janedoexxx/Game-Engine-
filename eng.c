@@ -15,6 +15,17 @@
 // Engine state
 static eng_t e;
 
+// Scene functions
+static void menu_init(void);
+static void menu_upd(void);
+static void menu_drw(void);
+static void menu_fin(void);
+
+static void game_init(void);
+static void game_upd(void);
+static void game_drw(void);
+static void game_fin(void);
+
 // Get current time in milliseconds
 static u32 tm(void)
 {
@@ -33,6 +44,8 @@ static u8 xk(KeySym ks)
         case XK_Down: return KEY_DOWN;
         case XK_Left: return KEY_LEFT;
         case XK_Right: return KEY_RIGHT;
+        case XK_1: return KEY_1;
+        case XK_2: return KEY_2;
         default: return 0;
     }
 }
@@ -307,6 +320,224 @@ snd* snd_get(u32 id)
     return (snd*)res_get(id);
 }
 
+// Scene functions implementation
+void scn_add(u32 id, scn_init_fn init, scn_upd_fn upd, scn_drw_fn drw, scn_fin_fn fin)
+{
+    if (e.sm.ns % 5 == 0) {
+        e.sm.scns = realloc(e.sm.scns, (e.sm.ns + 5) * sizeof(scn));
+    }
+    
+    scn* s = &e.sm.scns[e.sm.ns++];
+    s->id = id;
+    s->init = init;
+    s->upd = upd;
+    s->drw = drw;
+    s->fin = fin;
+    s->active = 0;
+}
+
+void scn_set(u32 id)
+{
+    // Deactivate current scene
+    if (e.sm.cur < e.sm.ns) {
+        scn* cur = &e.sm.scns[e.sm.cur];
+        if (cur->fin) cur->fin();
+        cur->active = 0;
+    }
+    
+    // Find and activate new scene
+    for (u32 i = 0; i < e.sm.ns; i++) {
+        if (e.sm.scns[i].id == id) {
+            e.sm.cur = i;
+            e.sm.scns[i].active = 1;
+            if (e.sm.scns[i].init) e.sm.scns[i].init();
+            return;
+        }
+    }
+    
+    // Fallback to first scene if not found
+    if (e.sm.ns > 0) {
+        e.sm.cur = 0;
+        e.sm.scns[0].active = 1;
+        if (e.sm.scns[0].init) e.sm.scns[0].init();
+    }
+}
+
+void scn_upd(void)
+{
+    if (e.sm.cur < e.sm.ns && e.sm.scns[e.sm.cur].upd) {
+        e.sm.scns[e.sm.cur].upd();
+    }
+}
+
+void scn_drw(void)
+{
+    if (e.sm.cur < e.sm.ns && e.sm.scns[e.sm.cur].drw) {
+        e.sm.scns[e.sm.cur].drw();
+    }
+}
+
+// Menu scene implementation
+static void menu_init(void)
+{
+    printf("Menu scene initialized\n");
+}
+
+static void menu_upd(void)
+{
+    // Switch to game scene on space
+    if (key(KEY_SPACE)) {
+        scn_set(SCENE_GAME);
+        aud_play(SND_CLICK);
+    }
+}
+
+static void menu_drw(void)
+{
+    XClearWindow(e.dpy, e.wid);
+    
+    set_col((col){0, 0, 0});
+    XDrawString(e.dpy, e.wid, e.gc, 300, 200, "GAME ENGINE DEMO", 16);
+    XDrawString(e.dpy, e.wid, e.gc, 320, 250, "Press SPACE to play", 19);
+    XDrawString(e.dpy, e.wid, e.gc, 340, 300, "Press ESC to quit", 17);
+    
+    char buf[32];
+    snprintf(buf, sizeof(buf), "FPS: %u", e.fps);
+    XDrawString(e.dpy, e.wid, e.gc, 10, 20, buf, strlen(buf));
+}
+
+static void menu_fin(void)
+{
+    printf("Menu scene finished\n");
+}
+
+// Game scene implementation
+static v2 pos, vel, acc;
+static u8 was_space;
+static spr player;
+
+static void game_init(void)
+{
+    printf("Game scene initialized\n");
+    
+    // Initialize physics
+    pos = v2_mk(100.0f, 100.0f);
+    vel = v2_mk(2.0f, 3.0f);
+    acc = v2_mk(0.0f, 0.1f);
+    was_space = 0;
+    
+    // Create player sprite
+    player = spr_mk(pos, v2_mk(50, 50), (col){255, 0, 0});
+}
+
+static void game_upd(void)
+{
+    // Handle input
+    if (key(KEY_UP)) acc.y = -0.2f;
+    else if (key(KEY_DOWN)) acc.y = 0.2f;
+    else acc.y = 0.1f; // Default gravity
+    
+    if (key(KEY_LEFT)) acc.x = -0.2f;
+    else if (key(KEY_RIGHT)) acc.x = 0.2f;
+    else acc.x = 0.0f;
+    
+    // Jump with sound
+    if (key(KEY_SPACE) && !was_space) {
+        vel.y = -5.0f;
+        aud_play(SND_JUMP);
+        was_space = 1;
+    } else if (!key(KEY_SPACE)) {
+        was_space = 0;
+    }
+    
+    // Physics update
+    vel = v2_add(vel, acc);
+    pos = v2_add(pos, vel);
+    
+    // Update player sprite position
+    player.pos = pos;
+    
+    // Check collisions with sprites
+    u8 hit = 0;
+    for (u32 i = 0; i < e.ns; i++) {
+        if (spr_col(player, e.sprs[i])) {
+            hit = 1;
+            // Simple collision response
+            vel.y = -vel.y * 0.8f;
+            
+            // Position correction
+            if (pos.y < e.sprs[i].pos.y) {
+                pos.y = e.sprs[i].pos.y - player.sz.y;
+            } else {
+                pos.y = e.sprs[i].pos.y + e.sprs[i].sz.y;
+            }
+            
+            player.pos = pos;
+        }
+    }
+    
+    // Play hit sound
+    if (hit) {
+        aud_play(SND_HIT);
+    }
+    
+    // Boundary collision
+    if (pos.x > 750.0f || pos.x < 0.0f) {
+        vel.x = -vel.x * 0.8f;
+        if (pos.x > 750.0f) pos.x = 750.0f;
+        if (pos.x < 0.0f) pos.x = 0.0f;
+        player.pos = pos;
+    }
+    
+    if (pos.y > 550.0f || pos.y < 0.0f) {
+        vel.y = -vel.y * 0.8f;
+        if (pos.y > 550.0f) pos.y = 550.0f;
+        if (pos.y < 0.0f) pos.y = 0.0f;
+        player.pos = pos;
+    }
+    
+    // Return to menu on ESC
+    if (key(KEY_ESC)) {
+        scn_set(SCENE_MENU);
+        aud_play(SND_CLICK);
+    }
+}
+
+static void game_drw(void)
+{
+    XClearWindow(e.dpy, e.wid);
+    
+    // Draw all sprites
+    for (u32 i = 0; i < e.ns; i++) {
+        spr_drw(e.sprs[i]);
+    }
+    
+    // Draw player
+    spr_drw(player);
+    
+    // Draw FPS counter
+    char buf[64];
+    snprintf(buf, sizeof(buf), "FPS: %u POS: (%.1f, %.1f) VEL: (%.1f, %.1f)", 
+            e.fps, pos.x, pos.y, vel.x, vel.y);
+    set_col((col){0, 0, 0}); // Black text
+    XDrawString(e.dpy, e.wid, e.gc, 10, 20, buf, strlen(buf));
+    
+    // Draw resource info
+    char res_buf[32];
+    snprintf(res_buf, sizeof(res_buf), "Resources: %u", e.rm.nr);
+    XDrawString(e.dpy, e.wid, e.gc, 10, 100, res_buf, strlen(res_buf));
+    
+    // Draw controls info
+    XDrawString(e.dpy, e.wid, e.gc, 10, 40, "Arrows: Apply force", 19);
+    XDrawString(e.dpy, e.wid, e.gc, 10, 60, "Space: Jump", 11);
+    XDrawString(e.dpy, e.wid, e.gc, 10, 80, "ESC: Menu", 9);
+}
+
+static void game_fin(void)
+{
+    printf("Game scene finished\n");
+}
+
 void ini(void)
 {
     printf("Engine init\n");
@@ -315,6 +546,11 @@ void ini(void)
     e.rm.ress = NULL;
     e.rm.nr = 0;
     e.rm.next_id = 1;
+    
+    // Initialize scene manager
+    e.sm.scns = NULL;
+    e.sm.ns = 0;
+    e.sm.cur = 0;
     
     // Open display
     e.dpy = XOpenDisplay(NULL);
@@ -389,12 +625,20 @@ void ini(void)
     // Init audio
     aud_ini();
     
+    // Add scenes
+    scn_add(SCENE_MENU, menu_init, menu_upd, menu_drw, menu_fin);
+    scn_add(SCENE_GAME, game_init, game_upd, game_drw, game_fin);
+    
+    // Set initial scene
+    scn_set(SCENE_MENU);
+    
     e.win = 1;
     e.rn = 1;
     
     printf("Window created\n");
     printf("Sprites initialized: %u\n", e.ns);
     printf("Resources loaded: %u\n", e.rm.nr);
+    printf("Scenes loaded: %u\n", e.sm.ns);
 }
 
 void run(void)
@@ -402,15 +646,6 @@ void run(void)
     if (!e.rn) return;
     
     XEvent ev;
-    
-    // Physics state using vectors
-    static v2 pos = {100.0f, 100.0f};
-    static v2 vel = {2.0f, 3.0f};
-    static v2 acc = {0.0f, 0.1f}; // Gravity
-    static u8 was_space = 0;
-    
-    // Create player sprite
-    spr player = spr_mk(pos, v2_mk(50, 50), (col){255, 0, 0});
     
     while (e.rn) {
         // Handle events
@@ -424,11 +659,8 @@ void run(void)
                     u8 k = xk(ks);
                     if (k) {
                         e.keys[k] = (ev.type == KeyPress);
-                        if (k == KEY_ESC && ev.type == KeyPress) {
+                        if (k == KEY_ESC && ev.type == KeyPress && e.sm.cur == SCENE_MENU) {
                             e.rn = 0;
-                        }
-                        if (k == KEY_SPACE && ev.type == KeyPress) {
-                            aud_play(SND_CLICK);
                         }
                     }
                     break;
@@ -444,97 +676,11 @@ void run(void)
             e.lt = e.ct;
             e.fc++;
             
-            // Handle input
-            if (e.keys[KEY_UP]) acc.y = -0.2f;
-            else if (e.keys[KEY_DOWN]) acc.y = 0.2f;
-            else acc.y = 0.1f; // Default gravity
+            // Update current scene
+            scn_upd();
             
-            if (e.keys[KEY_LEFT]) acc.x = -0.2f;
-            else if (e.keys[KEY_RIGHT]) acc.x = 0.2f;
-            else acc.x = 0.0f;
-            
-            // Jump with sound
-            if (e.keys[KEY_SPACE] && !was_space) {
-                vel.y = -5.0f;
-                aud_play(SND_JUMP);
-                was_space = 1;
-            } else if (!e.keys[KEY_SPACE]) {
-                was_space = 0;
-            }
-            
-            // Physics update
-            vel = v2_add(vel, acc);
-            pos = v2_add(pos, vel);
-            
-            // Update player sprite position
-            player.pos = pos;
-            
-            // Check collisions with sprites
-            u8 hit = 0;
-            for (u32 i = 0; i < e.ns; i++) {
-                if (spr_col(player, e.sprs[i])) {
-                    hit = 1;
-                    // Simple collision response
-                    vel.y = -vel.y * 0.8f;
-                    
-                    // Position correction
-                    if (pos.y < e.sprs[i].pos.y) {
-                        pos.y = e.sprs[i].pos.y - player.sz.y;
-                    } else {
-                        pos.y = e.sprs[i].pos.y + e.sprs[i].sz.y;
-                    }
-                    
-                    player.pos = pos;
-                }
-            }
-            
-            // Play hit sound
-            if (hit) {
-                aud_play(SND_HIT);
-            }
-            
-            // Boundary collision
-            if (pos.x > 750.0f || pos.x < 0.0f) {
-                vel.x = -vel.x * 0.8f;
-                if (pos.x > 750.0f) pos.x = 750.0f;
-                if (pos.x < 0.0f) pos.x = 0.0f;
-                player.pos = pos;
-            }
-            
-            if (pos.y > 550.0f || pos.y < 0.0f) {
-                vel.y = -vel.y * 0.8f;
-                if (pos.y > 550.0f) pos.y = 550.0f;
-                if (pos.y < 0.0f) pos.y = 0.0f;
-                player.pos = pos;
-            }
-            
-            // Clear screen
-            XClearWindow(e.dpy, e.wid);
-            
-            // Draw all sprites
-            for (u32 i = 0; i < e.ns; i++) {
-                spr_drw(e.sprs[i]);
-            }
-            
-            // Draw player
-            spr_drw(player);
-            
-            // Draw FPS counter
-            char buf[64];
-            snprintf(buf, sizeof(buf), "FPS: %u POS: (%.1f, %.1f) VEL: (%.1f, %.1f)", 
-                    e.fps, pos.x, pos.y, vel.x, vel.y);
-            set_col((col){0, 0, 0}); // Black text
-            XDrawString(e.dpy, e.wid, e.gc, 10, 20, buf, strlen(buf));
-            
-            // Draw resource info
-            char res_buf[32];
-            snprintf(res_buf, sizeof(res_buf), "Resources: %u", e.rm.nr);
-            XDrawString(e.dpy, e.wid, e.gc, 10, 100, res_buf, strlen(res_buf));
-            
-            // Draw controls info
-            XDrawString(e.dpy, e.wid, e.gc, 10, 40, "Arrows: Apply force", 19);
-            XDrawString(e.dpy, e.wid, e.gc, 10, 60, "Space: Jump", 11);
-            XDrawString(e.dpy, e.wid, e.gc, 10, 80, "ESC: Quit", 9);
+            // Draw current scene
+            scn_drw();
             
             // Calculate actual FPS every second
             if (e.fc % 60 == 0) {
@@ -556,6 +702,17 @@ void run(void)
 
 void fin(void)
 {
+    // Finish current scene
+    if (e.sm.cur < e.sm.ns && e.sm.scns[e.sm.cur].fin) {
+        e.sm.scns[e.sm.cur].fin();
+    }
+    
+    // Free scenes
+    if (e.sm.scns) {
+        free(e.sm.scns);
+        printf("Scenes freed\n");
+    }
+    
     // Free sprites
     if (e.sprs) {
         free(e.sprs);
