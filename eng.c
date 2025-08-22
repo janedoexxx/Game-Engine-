@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 199309L
+#define _GNU_SOURCE // For M_PI
 #include "eng.h"
 #include <stdio.h>
 #include <string.h>
@@ -149,7 +150,7 @@ void aud_ini(void)
     int err;
     
     // Open PCM device
-    err = snd_pcm_open(&e.ahan, "default", SND_PCM_STREAM_PLAYBACK, 0);
+    err = snd_pcm_open((snd_pcm_t**)&e.ahan, "default", SND_PCM_STREAM_PLAYBACK, 0);
     if (err < 0) {
         fprintf(stderr, "Audio open error: %s\n", snd_strerror(err));
         e.aud = 0;
@@ -157,13 +158,13 @@ void aud_ini(void)
     }
     
     // Set parameters
-    err = snd_pcm_set_params(e.ahan,
+    err = snd_pcm_set_params((snd_pcm_t*)e.ahan,
                             SND_PCM_FORMAT_S16_LE,
                             SND_PCM_ACCESS_RW_INTERLEAVED,
                             1, 44100, 1, 50000);
     if (err < 0) {
         fprintf(stderr, "Audio set params error: %s\n", snd_strerror(err));
-        snd_pcm_close(e.ahan);
+        snd_pcm_close((snd_pcm_t*)e.ahan);
         e.aud = 0;
         return;
     }
@@ -181,10 +182,10 @@ void aud_play(u8 s)
 {
     if (!e.aud || s >= 8 || !e.snds[s].data) return;
     
-    int err = snd_pcm_writei(e.ahan, e.snds[s].data, e.snds[s].len);
+    int err = snd_pcm_writei((snd_pcm_t*)e.ahan, e.snds[s].data, e.snds[s].len);
     if (err < 0) {
         fprintf(stderr, "Audio write error: %s\n", snd_strerror(err));
-        snd_pcm_recover(e.ahan, err, 0);
+        snd_pcm_recover((snd_pcm_t*)e.ahan, err, 0);
     }
 }
 
@@ -199,7 +200,7 @@ void aud_fin(void)
         }
     }
     
-    snd_pcm_close(e.ahan);
+    snd_pcm_close((snd_pcm_t*)e.ahan);
     e.aud = 0;
     printf("Audio shutdown\n");
 }
@@ -258,7 +259,6 @@ void ini(void)
     e.ns = 0;
     
     // Create some test sprites
-    col red = {255, 0, 0};
     col green = {0, 255, 0};
     col blue = {0, 0, 255};
     
