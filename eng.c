@@ -4,7 +4,7 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <sys/time.h>
-#include <unistd.h>
+#include <time.h>
 
 // Engine state
 static eng_t e;
@@ -43,7 +43,6 @@ void ini(void)
     gv.foreground = BlackPixel(e.dpy, s);
     gv.background = WhitePixel(e.dpy, s);
     gv.line_width = 2;
-    gv.background = WhitePixel(e.dpy, s);
     gv.line_style = LineSolid;
     
     e.gc = XCreateGC(e.dpy, e.wid, 
@@ -127,7 +126,10 @@ void run(void)
         }
         
         // Small sleep to prevent CPU hogging
-        usleep(1000);
+        struct timespec ts;
+        ts.tv_sec = 0;
+        ts.tv_nsec = 1000000; // 1 millisecond
+        nanosleep(&ts, NULL);
     }
 }
 
