@@ -512,7 +512,7 @@ void part_drw(void)
             (u8)(c.b * alpha)
         };
         
-        set_col(ddraw_col);
+        set_col(draw_col); // Fixed: was set_col(ddraw_col);
         
         // Draw different shapes based on type
         switch (e.parts[i].type) {
@@ -534,6 +534,7 @@ void part_drw(void)
         }
     }
 }
+
 
 void part_clear(void)
 {
