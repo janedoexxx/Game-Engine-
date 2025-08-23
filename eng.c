@@ -78,6 +78,7 @@ static u8 xk(KeySym ks)
         case XK_2: return KEY_2;
         case XK_p: return KEY_P;
         case XK_b: return KEY_B;
+        case XK_f: return KEY_F;
         default: return 0;
     }
 }
@@ -377,6 +378,170 @@ void tex_free(u32 id)
     res_del(id);
 }
 
+// Font functions implementation
+u32 font_load(const char* path, u8 cw, u8 ch, u8 first_char)
+{
+    // Load the font texture
+    u32 tex_id = tex_load(path);
+    if (!tex_id) return 0;
+    
+    tex* t = tex_get(tex_id);
+    if (!t || !t->loaded) return 0;
+    
+    // Calculate characters per row
+    u8 chars_per_row = t->w / cw;
+    u8 num_chars = (t->h / ch) * chars_per_row;
+    
+    // Allocate font
+    font* f = malloc(sizeof(font));
+    if (!f) {
+        tex_free(tex_id);
+        return 0;
+    }
+    
+    f->id = tex_id;
+    f->cw = cw;
+    f->ch = ch;
+    f->first_char = first_char;
+    f->num_chars = num_chars;
+    f->chars = malloc(num_chars * sizeof(font_char));
+    f->loaded = 0;
+    
+    if (!f->chars) {
+        free(f);
+        tex_free(tex_id);
+        return 0;
+    }
+    
+    // Extract character data from texture
+    for (u8 i = 0; i < num_chars; i++) {
+        u8 row = i / chars_per_row;
+        u8 col = i % chars_per_row;
+        
+        f->chars[i].w = cw;
+        f->chars[i].h = ch;
+        f->chars[i].data = malloc(cw * ch * sizeof(u8));
+        
+        if (!f->chars[i].data) {
+            // Clean up on failure
+            for (u8 j = 0; j < i; j++) {
+                free(f->chars[j].data);
+            }
+            free(f->chars);
+            free(f);
+            tex_free(tex_id);
+            return 0;
+        }
+        
+        // Extract character pixels (1-bit alpha: 0=transparent, 1=opaque)
+        for (u8 y = 0; y < ch; y++) {
+            for (u8 x = 0; x < cw; x++) {
+                u32 tex_x = col * cw + x;
+                u32 tex_y = row * ch + y;
+                col pixel = t->data[tex_y * t->w + tex_x];
+                
+                // Simple threshold for alpha (white = opaque, black = transparent)
+                f->chars[i].data[y * cw + x] = (pixel.r > 128 || pixel.g > 128 || pixel.b > 128) ? 1 : 0;
+            }
+        }
+    }
+    
+    f->loaded = 1;
+    printf("Loaded font: %s (%ux%u, %u chars)\n", path, cw, ch, num_chars);
+    
+    // Add to resource manager
+    char name[16];
+    snprintf(name, sizeof(name), "font_%u", e.rm.next_id);
+    return res_add(f, RES_FONT, name);
+}
+
+void font_drw(u32 id, const char* text, v2 pos, col clr, u8 align)
+{
+    font* f = font_get(id);
+    if (!f || !f->loaded) return;
+    
+    // Calculate text width for alignment
+    u32 text_width = font_text_width(id, text);
+    v2 draw_pos = pos;
+    
+    // Adjust position based on alignment
+    switch (align) {
+        case FONT_CENTER:
+            draw_pos.x -= text_width / 2;
+            break;
+        case FONT_RIGHT:
+            draw_pos.x -= text_width;
+            break;
+        case FONT_LEFT:
+        default:
+            break;
+    }
+    
+    set_col(clr);
+    
+    // Draw each character
+    for (u32 i = 0; text[i] != '\0'; i++) {
+        u8 c = text[i];
+        if (c < f->first_char || c >= f->first_char + f->num_chars) {
+            // Skip unknown characters
+            draw_pos.x += f->cw;
+            continue;
+        }
+        
+        u8 char_idx = c - f->first_char;
+        font_char* fc = &f->chars[char_idx];
+        
+        // Draw character pixels
+        for (u8 y = 0; y < fc->h; y++) {
+            for (u8 x = 0; x < fc->w; x++) {
+                if (fc->data[y * fc->w + x]) {
+                    XDrawPoint(e.dpy, e.wid, e.gc, 
+                              (int)(draw_pos.x + x), (int)(draw_pos.y + y));
+                }
+            }
+        }
+        
+        draw_pos.x += fc->w;
+    }
+}
+
+void font_free(u32 id)
+{
+    font* f = font_get(id);
+    if (f) {
+        for (u8 i = 0; i < f->num_chars; i++) {
+            free(f->chars[i].data);
+        }
+        free(f->chars);
+        tex_free(f->id);
+        free(f);
+    }
+    res_del(id);
+}
+
+font* font_get(u32 id)
+{
+    return (font*)res_get(id);
+}
+
+u32 font_text_width(u32 id, const char* text)
+{
+    font* f = font_get(id);
+    if (!f || !f->loaded) return 0;
+    
+    u32 width = 0;
+    for (u32 i = 0; text[i] != '\0'; i++) {
+        u8 c = text[i];
+        if (c >= f->first_char && c < f->first_char + f->num_chars) {
+            width += f->cw;
+        } else {
+            width += f->cw; // Unknown characters still take space
+        }
+    }
+    
+    return width;
+}
+
 // Particle functions implementation
 part part_mk(v2 pos, v2 vel, col clr, f32 life, u8 type)
 {
@@ -512,7 +677,7 @@ void part_drw(void)
             (u8)(c.b * alpha)
         };
         
-        set_col(draw_col); // Fixed: was set_col(ddraw_col);
+        set_col(draw_col);
         
         // Draw different shapes based on type
         switch (e.parts[i].type) {
@@ -534,7 +699,6 @@ void part_drw(void)
         }
     }
 }
-
 
 void part_clear(void)
 {
@@ -602,6 +766,15 @@ void res_del(u32 id)
                 if (t && t->data) {
                     free(t->data);
                 }
+            } else if (e.rm.ress[i].type == RES_FONT) {
+                font* f = (font*)e.rm.ress[i].data;
+                if (f) {
+                    for (u8 j = 0; j < f->num_chars; j++) {
+                        free(f->chars[j].data);
+                    }
+                    free(f->chars);
+                    tex_free(f->id);
+                }
             }
             free(e.rm.ress[i].data);
             
@@ -627,6 +800,15 @@ void res_clear(void)
             tex* t = (tex*)e.rm.ress[i].data;
             if (t && t->data) {
                 free(t->data);
+            }
+        } else if (e.rm.ress[i].type == RES_FONT) {
+            font* f = (font*)e.rm.ress[i].data;
+            if (f) {
+                for (u8 j = 0; j < f->num_chars; j++) {
+                    free(f->chars[j].data);
+                }
+                free(f->chars);
+                tex_free(f->id);
             }
         }
         free(e.rm.ress[i].data);
@@ -787,14 +969,28 @@ static void menu_drw(void)
 {
     XClearWindow(e.dpy, e.wid);
     
-    set_col((col){0, 0, 0});
-    XDrawString(e.dpy, e.wid, e.gc, 300, 200, "GAME ENGINE DEMO", 16);
-    XDrawString(e.dpy, e.wid, e.gc, 320, 250, "Press SPACE to play", 19);
-    XDrawString(e.dpy, e.wid, e.gc, 340, 300, "Press ESC to quit", 17);
+    // Draw title with font
+    if (e.def_font) {
+        font_drw(e.def_font, "GAME ENGINE DEMO", v2_mk(400, 200), (col){0, 0, 0}, FONT_CENTER);
+        font_drw(e.def_font, "Press SPACE to play", v2_mk(400, 250), (col){0, 0, 0}, FONT_CENTER);
+        font_drw(e.def_font, "Press ESC to quit", v2_mk(400, 300), (col){0, 0, 0}, FONT_CENTER);
+    } else {
+        // Fallback to XDrawString
+        set_col((col){0, 0, 0});
+        XDrawString(e.dpy, e.wid, e.gc, 300, 200, "GAME ENGINE DEMO", 16);
+        XDrawString(e.dpy, e.wid, e.gc, 320, 250, "Press SPACE to play", 19);
+        XDrawString(e.dpy, e.wid, e.gc, 340, 300, "Press ESC to quit", 17);
+    }
     
+    // Draw FPS counter
     char buf[32];
     snprintf(buf, sizeof(buf), "FPS: %u", e.fps);
-    XDrawString(e.dpy, e.wid, e.gc, 10, 20, buf, strlen(buf));
+    if (e.def_font) {
+        font_drw(e.def_font, buf, v2_mk(10, 20), (col){0, 0, 0}, FONT_LEFT);
+    } else {
+        set_col((col){0, 0, 0});
+        XDrawString(e.dpy, e.wid, e.gc, 10, 20, buf, strlen(buf));
+    }
 }
 
 static void menu_fin(void)
@@ -977,34 +1173,58 @@ static void game_drw(void)
         part_drw();
     }
     
-    // Draw FPS counter
-    char buf[64];
-    snprintf(buf, sizeof(buf), "FPS: %u POS: (%.1f, %.1f) VEL: (%.1f, %.1f)", 
-            e.fps, pos.x, pos.y, vel.x, vel.y);
-    set_col((col){0, 0, 0}); // Black text
-    XDrawString(e.dpy, e.wid, e.gc, 10, 20, buf, strlen(buf));
-    
-    // Draw resource info
-    char res_buf[32];
-    snprintf(res_buf, sizeof(res_buf), "Resources: %u", e.rm.nr);
-    XDrawString(e.dpy, e.wid, e.gc, 10, 100, res_buf, strlen(res_buf));
-    
-    // Draw particle info
-    char part_buf[32];
-    snprintf(part_buf, sizeof(part_buf), "Particles: %u (%s)", e.np, part_enabled ? "ON" : "OFF");
-    XDrawString(e.dpy, e.wid, e.gc, 10, 120, part_buf, strlen(part_buf));
-    
-    // Draw texture info
-    char tex_buf[32];
-    snprintf(tex_buf, sizeof(tex_buf), "Textures: %s", e.use_tex ? "ON" : "OFF");
-    XDrawString(e.dpy, e.wid, e.gc, 10, 140, tex_buf, strlen(tex_buf));
-    
-    // Draw controls info
-    XDrawString(e.dpy, e.wid, e.gc, 10, 40, "Arrows: Apply force", 19);
-    XDrawString(e.dpy, e.wid, e.gc, 10, 60, "Space: Jump", 11);
-    XDrawString(e.dpy, e.wid, e.gc, 10, 80, "P: Toggle particles", 19);
-    XDrawString(e.dpy, e.wid, e.gc, 10, 160, "B: Toggle textures", 18);
-    XDrawString(e.dpy, e.wid, e.gc, 10, 180, "ESC: Menu", 9);
+    // Draw info with font if available
+    if (e.def_font) {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "FPS: %u POS: (%.1f, %.1f) VEL: (%.1f, %.1f)", 
+                e.fps, pos.x, pos.y, vel.x, vel.y);
+        font_drw(e.def_font, buf, v2_mk(10, 20), (col){0, 0, 0}, FONT_LEFT);
+        
+        char res_buf[32];
+        snprintf(res_buf, sizeof(res_buf), "Resources: %u", e.rm.nr);
+        font_drw(e.def_font, res_buf, v2_mk(10, 40), (col){0, 0, 0}, FONT_LEFT);
+        
+        char part_buf[32];
+        snprintf(part_buf, sizeof(part_buf), "Particles: %u (%s)", e.np, part_enabled ? "ON" : "OFF");
+        font_drw(e.def_font, part_buf, v2_mk(10, 60), (col){0, 0, 0}, FONT_LEFT);
+        
+        char tex_buf[32];
+        snprintf(tex_buf, sizeof(tex_buf), "Textures: %s", e.use_tex ? "ON" : "OFF");
+        font_drw(e.def_font, tex_buf, v2_mk(10, 80), (col){0, 0, 0}, FONT_LEFT);
+        
+        // Draw controls info
+        font_drw(e.def_font, "Arrows: Apply force", v2_mk(10, 100), (col){0, 0, 0}, FONT_LEFT);
+        font_drw(e.def_font, "Space: Jump", v2_mk(10, 120), (col){0, 0, 0}, FONT_LEFT);
+        font_drw(e.def_font, "P: Toggle particles", v2_mk(10, 140), (col){0, 0, 0}, FONT_LEFT);
+        font_drw(e.def_font, "B: Toggle textures", v2_mk(10, 160), (col){0, 0, 0}, FONT_LEFT);
+        font_drw(e.def_font, "ESC: Menu", v2_mk(10, 180), (col){0, 0, 0}, FONT_LEFT);
+    } else {
+        // Fallback to XDrawString
+        char buf[64];
+        snprintf(buf, sizeof(buf), "FPS: %u POS: (%.1f, %.1f) VEL: (%.1f, %.1f)", 
+                e.fps, pos.x, pos.y, vel.x, vel.y);
+        set_col((col){0, 0, 0});
+        XDrawString(e.dpy, e.wid, e.gc, 10, 20, buf, strlen(buf));
+        
+        char res_buf[32];
+        snprintf(res_buf, sizeof(res_buf), "Resources: %u", e.rm.nr);
+        XDrawString(e.dpy, e.wid, e.gc, 10, 40, res_buf, strlen(res_buf));
+        
+        char part_buf[32];
+        snprintf(part_buf, sizeof(part_buf), "Particles: %u (%s)", e.np, part_enabled ? "ON" : "OFF");
+        XDrawString(e.dpy, e.wid, e.gc, 10, 60, part_buf, strlen(part_buf));
+        
+        char tex_buf[32];
+        snprintf(tex_buf, sizeof(tex_buf), "Textures: %s", e.use_tex ? "ON" : "OFF");
+        XDrawString(e.dpy, e.wid, e.gc, 10, 80, tex_buf, strlen(tex_buf));
+        
+        // Draw controls info
+        XDrawString(e.dpy, e.wid, e.gc, 10, 100, "Arrows: Apply force", 19);
+        XDrawString(e.dpy, e.wid, e.gc, 10, 120, "Space: Jump", 11);
+        XDrawString(e.dpy, e.wid, e.gc, 10, 140, "P: Toggle particles", 19);
+        XDrawString(e.dpy, e.wid, e.gc, 10, 160, "B: Toggle textures", 18);
+        XDrawString(e.dpy, e.wid, e.gc, 10, 180, "ESC: Menu", 9);
+    }
 }
 
 static void game_fin(void)
@@ -1102,6 +1322,9 @@ void ini(void)
     *obstacle2 = spr_mk(v2_mk(600, 300), v2_mk(50, 50), blue);
     obstacle2->id = res_add(obstacle2, RES_SPR, "obstacle2");
     spr_add(*obstacle2);
+    
+    // Load default font
+    e.def_font = font_load("font.bmp", 8, 8, 32);
     
     // Init audio
     aud_ini();

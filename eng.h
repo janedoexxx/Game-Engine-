@@ -22,6 +22,7 @@ typedef double f64;
 #define KEY_2 0x08
 #define KEY_P 0x09
 #define KEY_B 0x0A
+#define KEY_F 0x0B
 
 // Audio codes
 #define SND_JUMP 0x01
@@ -32,6 +33,7 @@ typedef double f64;
 #define RES_SPR 0x01
 #define RES_SND 0x02
 #define RES_TEX 0x03
+#define RES_FONT 0x04
 
 // Scene types
 #define SCENE_MENU 0x01
@@ -41,6 +43,11 @@ typedef double f64;
 #define PART_DUST 0x01
 #define PART_SPARK 0x02
 #define PART_SMOKE 0x03
+
+// Font alignment
+#define FONT_LEFT 0x01
+#define FONT_CENTER 0x02
+#define FONT_RIGHT 0x03
 
 // Vector types
 typedef struct { f32 x, y; } v2;
@@ -68,6 +75,24 @@ typedef struct {
     col* data;
     u8 loaded;
 } tex;
+
+// Font character data
+typedef struct {
+    u8 w;
+    u8 h;
+    u8* data;
+} font_char;
+
+// Font type
+typedef struct {
+    u32 id;
+    u8 cw;
+    u8 ch;
+    u8 first_char;
+    u8 num_chars;
+    font_char* chars;
+    u8 loaded;
+} font;
 
 // Particle type
 typedef struct {
@@ -164,6 +189,7 @@ typedef struct {
     res_mgr rm; // resource manager
     scn_mgr sm; // scene manager
     u8 use_tex; // use textures
+    u32 def_font; // default font ID
 } eng_t;
 
 // Engine functions
@@ -195,6 +221,13 @@ u32 tex_load(const char* path);
 void tex_drw(u32 id, v2 pos, v2 sz);
 tex* tex_get(u32 id);
 void tex_free(u32 id);
+
+// Font functions
+u32 font_load(const char* path, u8 cw, u8 ch, u8 first_char);
+void font_drw(u32 id, const char* text, v2 pos, col clr, u8 align);
+void font_free(u32 id);
+font* font_get(u32 id);
+u32 font_text_width(u32 id, const char* text);
 
 // Particle functions
 void part_init(void);
