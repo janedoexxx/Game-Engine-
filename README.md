@@ -78,36 +78,36 @@ PRs are accepted! This is a WIP and contributions are welcome:
 4. Submit a pull request
 
 ### Current status(dc9bedc)
-- Basic window creation and management [x]
+- [x] Basic window creation and management 
 
-- Graphics context and drawing [x]
+- [x] Graphics context and drawing
 
-- Frame timing and animation [x]
+- [x] Frame timing and animation
 
-- Input handling [x]
+- [x] Input handling 
 
-- Vector math and physics [x]
+- [x] Vector math and physics
 
-- Sprite system [x]
+- [x] Sprite system
 
-- Audio system [x]
+- [x] Audio system
 
-- Resource management [x]
+- [x] Resource management
 
-- Scene management [x]
+- [x] Scene management
 
 ### Future Plans
-- Texture and image support
+- [x] Texture and image support
 
-- Advanced collision detection
+- [ ] Advanced collision detection
 
-- Particle systems
+- [x] Particle systems
 
-- Network multiplayer
+- [ ] Network multiplayer
 
-- Scripting support
+- [ ] Scripting support
 
-- 3D rendering capabilities
+- [ ] 3D rendering capabilities
 
 ### License
 This project is open source (do whatever u want)
