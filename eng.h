@@ -24,6 +24,11 @@ typedef double f64;
 #define KEY_B 0x0A
 #define KEY_F 0x0B
 
+// Mouse codes
+#define MOUSE_LEFT 0x0C
+#define MOUSE_MIDDLE 0x0D
+#define MOUSE_RIGHT 0x0E
+
 // Audio codes
 #define SND_JUMP 0x01
 #define SND_HIT 0x02
@@ -179,6 +184,8 @@ typedef struct {
     u32 fc;     // frame counter
     u32 ft;     // frame time
     u8 keys[16]; // key states
+    u8 mouse_btns[3]; // mouse button states
+    v2 mouse_pos;     // mouse position
     spr* sprs;  // sprite array
     u32 ns;     // number of sprites
     part* parts; // particles array
@@ -197,6 +204,8 @@ void ini(void);
 void run(void);
 void fin(void);
 u8 key(u8 k);
+u8 mouse_btn(u8 btn);
+v2 v2_mouse(void);
 
 // Vector functions
 v2 v2_mk(f32 x, f32 y);

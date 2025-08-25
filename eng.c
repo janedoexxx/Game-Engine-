@@ -168,6 +168,20 @@ spr spr_mk(v2 pos, v2 sz, col clr)
     return s;
 }
 
+v2 v2_mouse(void)
+{
+    return e.mouse_pos;
+}
+
+// Check mouse button state
+u8 mouse_btn(u8 btn)
+{
+    if (btn >= MOUSE_LEFT && btn <= MOUSE_RIGHT) {
+        return e.mouse_btns[btn - MOUSE_LEFT];
+    }
+    return 0;
+}
+
 void spr_add(spr s)
 {
     if (e.ns % 10 == 0) {
@@ -1348,14 +1362,14 @@ void ini(void)
 void run(void)
 {
     if (!e.rn) return;
-    
+
     XEvent ev;
-    
+
     while (e.rn) {
         // Handle events
         while (XPending(e.dpy)) {
             XNextEvent(e.dpy, &ev);
-            
+
             switch (ev.type) {
                 case KeyPress:
                 case KeyRelease: {
@@ -1369,23 +1383,38 @@ void run(void)
                     }
                     break;
                 }
+                case ButtonPress:
+                case ButtonRelease: {
+                    u8 state = (ev.type == ButtonPress);
+                    switch (ev.xbutton.button) {
+                        case Button1: e.mouse_btns[0] = state; break;
+                        case Button2: e.mouse_btns[1] = state; break;
+                        case Button3: e.mouse_btns[2] = state; break;
+                    }
+                    break;
+                }
+                case MotionNotify: {
+                    e.mouse_pos.x = ev.xmotion.x;
+                    e.mouse_pos.y = ev.xmotion.y;
+                    break;
+                }
             }
         }
-        
+
         // Timing
         e.ct = tm();
         e.dt = e.ct - e.lt;
-        
+
         if (e.dt >= e.ft) {
             e.lt = e.ct;
             e.fc++;
-            
+
             // Update current scene
             scn_upd();
-            
+
             // Draw current scene
             scn_drw();
-            
+
             // Calculate actual FPS every second
             if (e.fc % 60 == 0) {
                 u32 ct = tm();
@@ -1395,7 +1424,7 @@ void run(void)
                 }
             }
         }
-        
+
         // Small sleep to prevent CPU hogging
         struct timespec ts;
         ts.tv_sec = 0;
@@ -1403,6 +1432,7 @@ void run(void)
         nanosleep(&ts, NULL);
     }
 }
+
 
 void fin(void)
 {
