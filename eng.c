@@ -384,21 +384,21 @@ u32 font_load(const char* path, u8 cw, u8 ch, u8 first_char)
     // Load the font texture
     u32 tex_id = tex_load(path);
     if (!tex_id) return 0;
-    
+
     tex* t = tex_get(tex_id);
     if (!t || !t->loaded) return 0;
-    
+
     // Calculate characters per row
     u8 chars_per_row = t->w / cw;
     u8 num_chars = (t->h / ch) * chars_per_row;
-    
+
     // Allocate font
     font* f = malloc(sizeof(font));
     if (!f) {
         tex_free(tex_id);
         return 0;
     }
-    
+
     f->id = tex_id;
     f->cw = cw;
     f->ch = ch;
@@ -406,22 +406,22 @@ u32 font_load(const char* path, u8 cw, u8 ch, u8 first_char)
     f->num_chars = num_chars;
     f->chars = malloc(num_chars * sizeof(font_char));
     f->loaded = 0;
-    
+
     if (!f->chars) {
         free(f);
         tex_free(tex_id);
         return 0;
     }
-    
+
     // Extract character data from texture
     for (u8 i = 0; i < num_chars; i++) {
         u8 row = i / chars_per_row;
-        u8 col = i % chars_per_row;
-        
+        u8 col_idx = i % chars_per_row;  // Changed 'col' to 'col_idx'
+
         f->chars[i].w = cw;
         f->chars[i].h = ch;
         f->chars[i].data = malloc(cw * ch * sizeof(u8));
-        
+
         if (!f->chars[i].data) {
             // Clean up on failure
             for (u8 j = 0; j < i; j++) {
@@ -432,23 +432,23 @@ u32 font_load(const char* path, u8 cw, u8 ch, u8 first_char)
             tex_free(tex_id);
             return 0;
         }
-        
+
         // Extract character pixels (1-bit alpha: 0=transparent, 1=opaque)
         for (u8 y = 0; y < ch; y++) {
             for (u8 x = 0; x < cw; x++) {
-                u32 tex_x = col * cw + x;
+                u32 tex_x = col_idx * cw + x;  // Changed 'col' to 'col_idx'
                 u32 tex_y = row * ch + y;
                 col pixel = t->data[tex_y * t->w + tex_x];
-                
+
                 // Simple threshold for alpha (white = opaque, black = transparent)
                 f->chars[i].data[y * cw + x] = (pixel.r > 128 || pixel.g > 128 || pixel.b > 128) ? 1 : 0;
             }
         }
     }
-    
+
     f->loaded = 1;
     printf("Loaded font: %s (%ux%u, %u chars)\n", path, cw, ch, num_chars);
-    
+
     // Add to resource manager
     char name[16];
     snprintf(name, sizeof(name), "font_%u", e.rm.next_id);
